@@ -8,6 +8,6 @@
     "strict": true,
     "outDir": "dist"
   },
-  "include": ["src", "index.ts"],
+  "include": ["src", "index.ts", "knexfile.ts"],
   "exclude": ["dist"]
 }
