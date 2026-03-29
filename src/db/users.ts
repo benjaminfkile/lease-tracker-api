@@ -1,4 +1,6 @@
 import { IUser } from "../interfaces";
+import { UpdateUserInput } from "../validation/schemas";
+import { ApiError } from "../utils/ApiError";
 import { getDb } from "./db";
 
 export async function upsertUser(
@@ -10,6 +12,22 @@ export async function upsertUser(
     .onConflict("cognito_user_id")
     .merge(["email"])
     .returning("*");
+
+  return user;
+}
+
+export async function updateUser(
+  userId: string,
+  updates: UpdateUserInput
+): Promise<IUser> {
+  const [user] = await getDb()<IUser>("users")
+    .where({ id: userId })
+    .update(updates)
+    .returning("*");
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
 
   return user;
 }
