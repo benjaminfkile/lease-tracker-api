@@ -1,0 +1,1 @@
+export type TNodeEnviromnent = "local" | "development" | "production"

@@ -1,0 +1,35 @@
+import { TNodeEnviromnent } from "./types";
+
+export interface IAPISecrets {
+  db_name: string;
+  node_env: TNodeEnviromnent;
+  port: string;
+}
+
+export interface IDBSecrets {
+  username: string
+  password: string
+  engine: "postgres"
+  host: string
+  proxy_url: string
+  port: 5432
+  dbInstanceIdentifier: string
+}
+
+export interface IDBHealth {
+  connected: boolean;
+  connectionUsesProxy: boolean;
+  logs?: {
+    messages: string[];
+    host?: string;
+    timestamp: string;
+    error?: string;
+  };
+}
+
+export interface IRawSQL {
+  command: string;
+  rowCount: number;
+  oid: null | string;
+  rows: any[];
+}
