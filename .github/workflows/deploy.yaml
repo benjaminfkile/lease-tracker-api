@@ -3,6 +3,8 @@ name: Build and Deploy Lease Tracker API
 on:
   push:
     branches: ["main", "dev"]
+    paths-ignore:
+      - "**/*.md"
 
 env:
   IMAGE_TAG: ${{ github.ref_name == 'main' && 'latest' || 'dev' }}
