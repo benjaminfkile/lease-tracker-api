@@ -35,6 +35,30 @@ jobs:
           gh pr merge $PR --squash --delete-branch --repo $REPO
 
 
+      - name: Close linked issue
+        if: steps.merge.conclusion == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          # Try Closes/Fixes/Resolves keywords in PR body first
+          BODY=$(gh pr view $PR --repo $REPO --json body --jq '.body')
+          ISSUES=$(echo "$BODY" | grep -oiE '(closes|fixes|resolves) #[0-9]+' | grep -oE '[0-9]+' || true)
+          if [ -n "$ISSUES" ]; then
+            for ISSUE in $ISSUES; do
+              echo "Closing issue #$ISSUE (from PR body keyword)"
+              gh issue close $ISSUE --repo $REPO || true
+            done
+          else
+            # Fall back: close whichever open queue issue is assigned to Copilot
+            echo "No Closes keyword found — closing Copilot-assigned issue from queue"
+            gh issue list --repo $REPO --assignee "Copilot" --state open --json number --jq '.[].number' | while read ISSUE; do
+              echo "Closing issue #$ISSUE (was assigned to Copilot)"
+              gh issue close $ISSUE --repo $REPO || true
+            done
+          fi
+
       - name: Checkout dev (to read issue queue)
         if: steps.merge.conclusion == 'success'
         uses: actions/checkout@v4
