@@ -3,6 +3,7 @@ import morgan from "morgan";
 import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
+import usersRouter from "./routers/usersRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -39,6 +40,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use("/api/health", healthRouter);
+app.use("/api/users", usersRouter);
 
 app.use(errorHandler);
 
