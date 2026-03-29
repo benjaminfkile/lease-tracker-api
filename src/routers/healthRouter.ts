@@ -11,7 +11,7 @@ const healthRouter = express.Router();
  */
 healthRouter.route("/").get(async (req: Request, res: Response) => {
   try {
-    res.status(200).send(":)")
+    res.status(200).send(`:) ${process.env.NODE_ENVIRONMENT}`);
     // const db = getDb();
 
     // const verbose = req.query.verbose === "true";
