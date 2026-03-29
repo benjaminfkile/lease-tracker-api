@@ -33,3 +33,15 @@ export interface IRawSQL {
   oid: null | string;
   rows: any[];
 }
+
+export interface IUser {
+  id: string;
+  cognito_user_id: string;
+  email: string;
+  display_name: string | null;
+  subscription_tier: string;
+  subscription_expires_at: Date | null;
+  push_token: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
