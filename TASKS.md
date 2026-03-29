@@ -17,6 +17,45 @@ protected route. It never stores passwords.
 
 ---
 
+## Sequencing Guide
+
+Work through phases **in the order listed in the table below** — not strictly by phase number. Phase 13 (validation) must be completed before Phase 3 because every route from Phase 4 onward depends on the Zod schemas and `ApiError` class it creates.
+
+| Order | Phase | Name | Depends On | Unlocks |
+|------:|-------|------|------------|---------|
+| 1 | **1** | Project Infrastructure | — | Everything |
+| 2 | **2** | Database Migrations | Phase 1 | Phase 3 |
+| 3 | **13** | ⚠️ Validation & Error Handling | Phase 1 | Phases 3–12 |
+| 4 | **14** | Health Endpoint | Phase 1 | Gateway integration |
+| 5 | **3** | Auth Middleware (Cognito) | Phases 2 & 13 | Phases 4–12 |
+| 6 | **4** | User Endpoints | Phase 3 | Phases 5–12, **Mobile auth** |
+| 7 | **5** | Lease Endpoints | Phase 4 | Phases 6–9, 12, **Mobile Phases 6–7** |
+| 8 | **6** | Odometer Reading Endpoints | Phase 5 | Phase 12, **Mobile Phase 8** |
+| 9 | **7** | Saved Trips Endpoints | Phase 5 | **Mobile Phase 10** |
+| 10 | **8** | Alert Configuration Endpoints | Phase 5 | Phase 11 |
+| 11 | **9** | Lease Sharing | Phase 5 | **Mobile Phase 14.6** |
+| 12 | **10** | Subscription & Tier Management | Phase 4 | Phase 11, **Mobile Phase 12** |
+| 13 | **11** | Push Notifications | Phases 8 & 10 | **Mobile Phase 11** |
+| 14 | **12** | Advanced Analytics | Phase 6 | **Mobile Phase 9** |
+| 15 | **15** | Testing | All above | — |
+| 16 | **16** | Documentation & Deployment | All above | — |
+
+### When to start the mobile app
+
+Start **LeaseTracker mobile Phases 1–5** (dependencies, design system, auth screens, navigation, API layer) once API **Phases 1–4** are complete and deployed to `dev`. Those mobile phases only require a live Cognito pool and a working `/api/users/me` response. Use mocked API responses for all other screens until the corresponding API phase is deployed.
+
+| API phase complete | Mobile work it unblocks |
+|--------------------|--------------------------|
+| Phases 1–4 | Mobile Phases 1–5 (full foundation + auth) |
+| Phase 5 (leases) | Mobile Phases 6–7 (dashboard + lease screens) |
+| Phase 6 (readings) | Mobile Phase 8 (odometer screens) |
+| Phase 7 (trips) | Mobile Phase 10 (trips screens) |
+| Phase 10 (subscriptions) | Mobile Phase 12 (IAP) |
+| Phase 11 (notifications) | Mobile Phase 11 (push notifications) |
+| Phase 12 (analytics) | Mobile Phase 9 (charts + analytics screens) |
+
+---
+
 ## Database Schema Design
 
 All migrations must be applied in order. Run locally with `knex migrate:latest`.
@@ -212,6 +251,8 @@ INDEX: (user_id)
 ---
 
 ## Phase 3 — Auth Middleware (Cognito)
+
+> **Complete Phase 13 before this phase.** The `ApiError` class and `validate` middleware created in Phase 13 are used by every route built from here on.
 
 - [ ] **3.1 Create Cognito verifier helper — `src/auth/cognitoVerifier.ts`**
   - Use `CognitoJwtVerifier` from `aws-jwt-verify`
@@ -490,6 +531,8 @@ INDEX: (user_id)
 ---
 
 ## Phase 13 — Input Validation & Error Handling
+
+> ⚠️ **Do this phase immediately after Phase 2, before Phase 3.** See the Sequencing Guide at the top of this file. Every route from Phase 4 onward depends on the schemas and `ApiError` class created here.
 
 - [ ] **13.1 Create Zod schemas — `src/validation/schemas.ts`**
   - `CreateLeaseSchema`
