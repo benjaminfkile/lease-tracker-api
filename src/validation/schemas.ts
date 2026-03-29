@@ -150,9 +150,19 @@ export const InviteMemberSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// User schemas
+// ---------------------------------------------------------------------------
+
+export const UpdateUserSchema = z.object({
+  display_name: z.string().min(1).max(150).nullable().optional(),
+  push_token: z.string().min(1).nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------
 
+export type UpdateUserInput = z.infer<typeof UpdateUserSchema>;
 export type CreateLeaseInput = z.infer<typeof CreateLeaseSchema>;
 export type UpdateLeaseInput = z.infer<typeof UpdateLeaseSchema>;
 export type CreateOdometerReadingInput = z.infer<typeof CreateOdometerReadingSchema>;

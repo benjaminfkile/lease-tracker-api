@@ -10,6 +10,7 @@ import { errorHandler } from "./middleware/errorHandler";
 const app: Express = express();
 
 app.use(helmet());
+app.use(express.json());
 
 if (isLocal()) {
   app.use(morgan("dev"));
