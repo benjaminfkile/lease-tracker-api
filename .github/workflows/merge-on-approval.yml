@@ -1,0 +1,27 @@
+name: Merge on Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  merge:
+    # Only merge when: approved review, targeting dev, not a draft
+    if: |
+      github.event.review.state == 'approved' &&
+      github.event.pull_request.base.ref == 'dev' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Merge PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --squash \
+            --delete-branch \
+            --repo ${{ github.repository }}
