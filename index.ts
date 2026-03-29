@@ -2,11 +2,12 @@ import dotenv from "dotenv";
 import http from "http";
 import { initDb } from "./src/db/db";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
+import { getDBSecrets } from "./src/aws/getDBSecrets";
+import { getLocalAppSecrets, getLocalDBSecrets } from "./src/aws/getLocalSecrets";
 import { IAPISecrets, IDBSecrets } from "./src/interfaces";
 import app from "./src/app";
 import morgan from "morgan";
 import { TNodeEnviromnent } from "./src/types";
-import { getDBSecrets } from "./src/aws/getDBSecrets";
 
 dotenv.config();
 
@@ -17,36 +18,48 @@ process.on("uncaughtException", function (err) {
 
 async function start() {
   try {
-    const appSecrets: IAPISecrets = await getAppSecrets();
-    const dbSecrets: IDBSecrets = await getDBSecrets();
-    
+    const isLocal = process.env.IS_LOCAL === "true";
+
+    let appSecrets: IAPISecrets;
+    let dbSecrets: IDBSecrets;
+
+    if (isLocal) {
+      appSecrets = getLocalAppSecrets();
+      dbSecrets = getLocalDBSecrets();
+    } else {
+      appSecrets = await getAppSecrets();
+      dbSecrets = await getDBSecrets();
+    }
+
     app.set("secrets", appSecrets);
 
-    const environemt =
-      process.env.IS_LOCAL === "true"
-        ? "local"
-        : appSecrets.node_env || ("local" as TNodeEnviromnent);
-    const morganOption = environemt === "production" ? "tiny" : "common";
+    const environment: TNodeEnviromnent = isLocal
+      ? "local"
+      : appSecrets.node_env || "local";
+    const morganOption = environment === "production" ? "tiny" : "common";
     app.use(morgan(morganOption));
 
     const port = parseInt(appSecrets.port) || 3005;
     const server = http.createServer({}, app);
 
-    await initDb(dbSecrets, appSecrets, environemt);
+    const db = await initDb(dbSecrets, appSecrets, environment);
 
-    process.on("SIGINT", () => {
-      server?.close(() => {
+    async function shutdown(signal: string) {
+      console.log(`Received ${signal}, shutting down gracefully`);
+      server.close(async () => {
+        try {
+          await db.destroy();
+          console.log("Database pool closed");
+        } catch (dbErr) {
+          console.error("Error closing database pool:", dbErr);
+        }
         console.log("Server closed");
         process.exit(0);
       });
-    });
+    }
 
-    process.on("SIGTERM", () => {
-      server?.close(() => {
-        console.log("Server closed");
-        process.exit(0);
-      });
-    });
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
 
     server.listen(port, () => {
       console.log(`⚡️[server]: Server is running at http://localhost:${port}`);
