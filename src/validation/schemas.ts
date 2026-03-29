@@ -162,12 +162,17 @@ export const UpdatePushTokenSchema = z.object({
   push_token: z.string().min(1),
 });
 
+export const DeleteUserSchema = z.object({
+  confirm: z.literal("DELETE"),
+});
+
 // ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------
 
 export type UpdateUserInput = z.infer<typeof UpdateUserSchema>;
 export type UpdatePushTokenInput = z.infer<typeof UpdatePushTokenSchema>;
+export type DeleteUserInput = z.infer<typeof DeleteUserSchema>;
 export type CreateLeaseInput = z.infer<typeof CreateLeaseSchema>;
 export type UpdateLeaseInput = z.infer<typeof UpdateLeaseSchema>;
 export type CreateOdometerReadingInput = z.infer<typeof CreateOdometerReadingSchema>;

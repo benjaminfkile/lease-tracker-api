@@ -1,4 +1,4 @@
-import { upsertUser, updateUser } from "../src/db/users";
+import { upsertUser, updateUser, deleteUser } from "../src/db/users";
 import { getDb } from "../src/db/db";
 import { IUser } from "../src/interfaces";
 
@@ -233,5 +233,80 @@ describe("updateUser", () => {
       statusCode: 404,
       message: "User not found",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteUser
+// ---------------------------------------------------------------------------
+
+describe("deleteUser", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function buildDeleteMockKnex(deleteCount: number) {
+    const chain = {
+      where: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockResolvedValue(deleteCount),
+    };
+    return jest.fn().mockReturnValue(chain);
+  }
+
+  it("calls getDb to obtain the knex instance", async () => {
+    const mockKnex = buildDeleteMockKnex(1);
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await deleteUser(fakeUser.id);
+
+    expect(mockGetDb).toHaveBeenCalledTimes(1);
+  });
+
+  it("targets the 'users' table", async () => {
+    const mockKnex = buildDeleteMockKnex(1);
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await deleteUser(fakeUser.id);
+
+    expect(mockKnex).toHaveBeenCalledWith("users");
+  });
+
+  it("filters by user id", async () => {
+    const mockKnex = buildDeleteMockKnex(1);
+    const chain = mockKnex("users");
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await deleteUser(fakeUser.id);
+
+    expect(chain.where).toHaveBeenCalledWith({ id: fakeUser.id });
+  });
+
+  it("resolves without a value on successful delete", async () => {
+    const mockKnex = buildDeleteMockKnex(1);
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await expect(deleteUser(fakeUser.id)).resolves.toBeUndefined();
+  });
+
+  it("throws ApiError 404 when no user matches the id", async () => {
+    const mockKnex = buildDeleteMockKnex(0);
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await expect(deleteUser("non-existent-id")).rejects.toMatchObject({
+      statusCode: 404,
+      message: "User not found",
+    });
+  });
+
+  it("propagates errors thrown by the database", async () => {
+    const dbError = new Error("DB connection lost");
+    const chain = {
+      where: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockRejectedValue(dbError),
+    };
+    const mockKnex = jest.fn().mockReturnValue(chain);
+    mockGetDb.mockReturnValue(mockKnex);
+
+    await expect(deleteUser(fakeUser.id)).rejects.toThrow("DB connection lost");
   });
 });

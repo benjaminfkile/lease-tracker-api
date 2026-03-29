@@ -15,16 +15,18 @@ jest.mock("../src/auth/cognitoVerifier", () => ({
 jest.mock("../src/db/users", () => ({
   upsertUser: jest.fn(),
   updateUser: jest.fn(),
+  deleteUser: jest.fn(),
 }));
 
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
-import { upsertUser, updateUser } from "../src/db/users";
+import { upsertUser, updateUser, deleteUser } from "../src/db/users";
 import usersRouter from "../src/routers/usersRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
 const mockUpsertUser = upsertUser as jest.Mock;
 const mockUpdateUser = updateUser as jest.Mock;
+const mockDeleteUser = deleteUser as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -440,6 +442,88 @@ describe("PATCH /api/users/me/push-token", () => {
       .patch("/api/users/me/push-token")
       .set("Authorization", "Bearer valid.token")
       .send({ push_token: "device-token-xyz" });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/users/me
+// ---------------------------------------------------------------------------
+
+describe("DELETE /api/users/me", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .delete("/api/users/me")
+      .send({ confirm: "DELETE" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when confirm field is missing", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .delete("/api/users/me")
+      .set("Authorization", "Bearer valid.token")
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when confirm field has wrong value", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .delete("/api/users/me")
+      .set("Authorization", "Bearer valid.token")
+      .send({ confirm: "delete" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 204 and calls deleteUser when confirm is 'DELETE'", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockDeleteUser.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .delete("/api/users/me")
+      .set("Authorization", "Bearer valid.token")
+      .send({ confirm: "DELETE" });
+
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({});
+    expect(mockDeleteUser).toHaveBeenCalledWith(fakeUser.id);
+  });
+
+  it("returns 500 when deleteUser throws", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockDeleteUser.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .delete("/api/users/me")
+      .set("Authorization", "Bearer valid.token")
+      .send({ confirm: "DELETE" });
 
     expect(res.status).toBe(500);
   });
