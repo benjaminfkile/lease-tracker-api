@@ -1,16 +1,17 @@
 name: Merge on Approval
 
 on:
+  # Fired when user submits a review (approve/comment/reject)
   pull_request_review:
     types: [submitted]
+  # Fired when a draft PR is promoted to ready-for-review
+  pull_request:
+    types: [ready_for_review]
+    branches: [dev]
 
 jobs:
   merge-and-advance:
-    # Only fire when: approved review, targeting dev, not a draft
-    if: |
-      github.event.review.state == 'approved' &&
-      github.event.pull_request.base.ref == 'dev' &&
-      github.event.pull_request.draft == false
+    if: github.event.pull_request.base.ref == 'dev'
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -18,7 +19,57 @@ jobs:
       contents: write
 
     steps:
+      - name: Determine action
+        id: decide
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            // pull_request_review event: only act on approvals
+            if (context.eventName === 'pull_request_review') {
+              if (context.payload.review.state !== 'approved') {
+                console.log('Not an approval, skipping');
+                core.setOutput('action', 'skip');
+                return;
+              }
+              // If PR is still a draft, promote it; the ready_for_review event will then merge
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber,
+              });
+              if (pr.draft) {
+                console.log('PR is draft — promoting to ready for review');
+                core.setOutput('action', 'promote');
+                return;
+              }
+            }
+
+            // pull_request ready_for_review event: only merge if already approved
+            if (context.eventName === 'pull_request') {
+              const { data: reviews } = await github.rest.pulls.listReviews({
+                owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber,
+              });
+              const approved = reviews.some(r => r.state === 'APPROVED');
+              if (!approved) {
+                console.log('Not yet approved — waiting for review');
+                core.setOutput('action', 'skip');
+                return;
+              }
+            }
+
+            console.log('Will merge PR #' + prNumber);
+            core.setOutput('action', 'merge');
+
+      - name: Promote draft to ready
+        if: steps.decide.outputs.action == 'promote'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr ready ${{ github.event.pull_request.number }} --repo ${{ github.repository }}
+          echo "PR promoted to ready for review (will auto-merge once ready_for_review event fires)"
+
       - name: Merge PR
+        if: steps.decide.outputs.action == 'merge'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -28,11 +79,13 @@ jobs:
             --repo ${{ github.repository }}
 
       - name: Checkout dev (to read issue queue)
+        if: steps.decide.outputs.action == 'merge'
         uses: actions/checkout@v4
         with:
           ref: dev
 
       - name: Find next open issue
+        if: steps.decide.outputs.action == 'merge'
         id: find-next
         uses: actions/github-script@v7
         with:
@@ -67,7 +120,7 @@ jobs:
             console.log('No more open issues in the queue — all done!');
 
       - name: Assign to Copilot
-        if: steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'false'
+        if: steps.decide.outputs.action == 'merge' && steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -77,7 +130,7 @@ jobs:
           echo "Assigned #${{ steps.find-next.outputs.issue_number }} to @copilot"
 
       - name: Assign to human
-        if: steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'true'
+        if: steps.decide.outputs.action == 'merge' && steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
