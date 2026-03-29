@@ -35,48 +35,24 @@ jobs:
           gh pr merge $PR --squash --delete-branch --repo $REPO
 
 
-      - name: Close linked issue
-        if: steps.merge.conclusion == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR=${{ github.event.pull_request.number }}
-          REPO=${{ github.repository }}
-          # Try Closes/Fixes/Resolves keywords in PR body first
-          BODY=$(gh pr view $PR --repo $REPO --json body --jq '.body')
-          ISSUES=$(echo "$BODY" | grep -oiE '(closes|fixes|resolves) #[0-9]+' | grep -oE '[0-9]+' || true)
-          if [ -n "$ISSUES" ]; then
-            for ISSUE in $ISSUES; do
-              echo "Closing issue #$ISSUE (from PR body keyword)"
-              gh issue close $ISSUE --repo $REPO || true
-            done
-          else
-            # Fall back: list all open issues and filter for Copilot assignee in jq
-            # (--assignee "Copilot" fails via GraphQL because Copilot is a GitHub App)
-            echo "No Closes keyword found — scanning open issues for Copilot assignee"
-            gh issue list --repo $REPO --state open --json number,assignees --limit 200 | \
-              jq -r '.[] | select(.assignees | map(select(.login == "Copilot")) | length > 0) | .number' | \
-              while read ISSUE; do
-                echo "Closing issue #$ISSUE (was assigned to Copilot)"
-                gh issue close $ISSUE --repo $REPO || true
-              done
-          fi
-
       - name: Checkout dev (to read issue queue)
         if: steps.merge.conclusion == 'success'
         uses: actions/checkout@v4
         with:
           ref: dev
 
-      - name: Find next open issue
+      - name: Close current and advance queue
         if: steps.merge.conclusion == 'success'
-        id: find-next
         uses: actions/github-script@v7
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const queueData = JSON.parse(fs.readFileSync('.github/issue-queue.json', 'utf8'));
-            const queue = queueData.queue;
+            const { execSync } = require('child_process');
+
+            const queue = JSON.parse(fs.readFileSync('.github/issue-queue.json', 'utf8')).queue;
 
             const { data: openIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -85,43 +61,54 @@ jobs:
               per_page: 200,
             });
 
-            const openNumbers = new Set(openIssues.map(i => i.number));
-            const issueMap = Object.fromEntries(openIssues.map(i => [i.number, i]));
+            const openMap = Object.fromEntries(openIssues.map(i => [i.number, i]));
 
+            // Close the first open+assigned issue in queue order (the one just completed)
             for (const num of queue) {
-              if (!openNumbers.has(num)) continue;
-              const issue = issueMap[num];
+              const issue = openMap[num];
+              if (!issue) continue;
+              if (issue.assignees && issue.assignees.length > 0) {
+                console.log(`Closing issue #${num}: ${issue.title}`);
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                  state: 'closed',
+                });
+                delete openMap[num];
+                break;
+              }
+            }
+
+            // Find the next open+unassigned issue in queue order and assign it
+            for (const num of queue) {
+              const issue = openMap[num];
+              if (!issue) continue;
               if (issue.assignees && issue.assignees.length > 0) continue;
+
               const isManual = issue.labels.some(l => l.name === 'manual');
-              core.setOutput('issue_number', String(num));
-              core.setOutput('is_manual', isManual ? 'true' : 'false');
-              core.setOutput('found', 'true');
-              console.log(`Next issue: #${num} (manual=${isManual})`);
+              console.log(`Next issue: #${num} "${issue.title}" (manual=${isManual})`);
+
+              if (isManual) {
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                  assignees: [context.repo.owner],
+                });
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                  body: '👋 **Manual task** — this requires human action and cannot be completed by the coding agent. Complete the steps above, then close this issue to advance the queue.',
+                });
+              } else {
+                execSync(
+                  `gh issue edit ${num} --add-assignee @copilot --repo ${context.repo.owner}/${context.repo.repo}`,
+                  { env: { ...process.env, GH_TOKEN: process.env.GH_PAT }, stdio: 'inherit' }
+                );
+              }
               return;
             }
 
-            core.setOutput('found', 'false');
-            console.log('No more open issues in the queue — all done!');
-
-      - name: Assign to Copilot
-        if: steps.merge.conclusion == 'success' && steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          gh issue edit ${{ steps.find-next.outputs.issue_number }} \
-            --add-assignee @copilot \
-            --repo ${{ github.repository }}
-          echo "Assigned #${{ steps.find-next.outputs.issue_number }} to @copilot"
-
-      - name: Assign to human
-        if: steps.merge.conclusion == 'success' && steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue edit ${{ steps.find-next.outputs.issue_number }} \
-            --add-assignee benjaminfkile \
-            --repo ${{ github.repository }}
-          gh issue comment ${{ steps.find-next.outputs.issue_number }} \
-            --body "👋 **Manual task** — this requires human action and cannot be completed by the coding agent. Complete the steps above, then close this issue to advance the queue." \
-            --repo ${{ github.repository }}
-          echo "Assigned manual #${{ steps.find-next.outputs.issue_number }} to benjaminfkile"
+            console.log('No more open issues in queue — all done!');
