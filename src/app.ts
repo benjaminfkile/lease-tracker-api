@@ -1,9 +1,10 @@
-import express, { Express, NextFunction, Request, Response } from "express";
+import express, { Express, Request, Response } from "express";
 import morgan from "morgan";
 import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
 import { isLocal } from "./utils/isLocal";
+import { errorHandler } from "./middleware/errorHandler";
 
 const app: Express = express();
 
@@ -39,17 +40,6 @@ app.get("/", (req: Request, res: Response) => {
 
 app.use("/api/health", healthRouter);
 
-app.use(function errorHandler(
-  err: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  if (res.headersSent) {
-    return next(err);
-  }
-  res.status(500);
-  res.render("error", { error: err });
-});
+app.use(errorHandler);
 
 export default app;
