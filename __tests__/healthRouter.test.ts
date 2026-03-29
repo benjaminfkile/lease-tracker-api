@@ -1,5 +1,6 @@
 import request from "supertest";
 import express from "express";
+import { version } from "../package.json";
 
 // ---------------------------------------------------------------------------
 // Mocks — jest.mock is hoisted so factories must use inline jest.fn() only.
@@ -56,11 +57,11 @@ describe("GET /health", () => {
     const res = await request(buildApp()).get("/health");
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      status: "ok",
-      error: false,
-      health: { connected: true, connectionUsesProxy: false },
-    });
+    expect(res.body.status).toBe("ok");
+    expect(res.body.version).toBe(version);
+    expect(typeof res.body.environment).toBe("string");
+    expect(typeof res.body.uptime_seconds).toBe("number");
+    expect(res.body.db).toEqual({ connected: true });
   });
 
   it("passes verbose=true to getDBConnectionHealth when query param is set", async () => {

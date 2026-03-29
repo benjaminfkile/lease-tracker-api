@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { getDb } from "../db/db";
 import health from "../db/health";
+import { version } from "../../package.json";
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 
@@ -33,8 +34,10 @@ healthRouter.route("/").get(async (req: Request, res: Response) => {
 
       res.status(200).json({
         status: "ok",
-        error: false,
-        health: result,
+        version,
+        environment: process.env.NODE_ENV ?? "development",
+        uptime_seconds: Math.floor(process.uptime()),
+        db: { connected: result.connected },
       });
     } catch (error) {
       clearTimeout(timeoutId);
