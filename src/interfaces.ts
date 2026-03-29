@@ -1,4 +1,4 @@
-import { TNodeEnviromnent } from "./types";
+import { TNodeEnviromnent, TLeaseRole } from "./types";
 
 export interface IAPISecrets {
   db_name: string;
@@ -44,4 +44,14 @@ export interface IUser {
   push_token: string | null;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface ILeaseMember {
+  id: string;
+  lease_id: string;
+  user_id: string;
+  role: TLeaseRole;
+  invited_by: string | null;
+  accepted_at: Date | null;
+  created_at: Date;
 }
