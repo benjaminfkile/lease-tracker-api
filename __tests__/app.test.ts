@@ -1,6 +1,20 @@
 import request from "supertest";
 import app from "../src/app";
 
+jest.mock("../src/db/db", () => ({
+  getDb: jest.fn().mockReturnValue({}),
+}));
+
+jest.mock("../src/db/health", () => ({
+  __esModule: true,
+  default: {
+    getDBConnectionHealth: jest.fn().mockResolvedValue({
+      connected: true,
+      connectionUsesProxy: false,
+    }),
+  },
+}));
+
 describe("api basic routes", () => {
   it("GET / responds", async () => {
     const res = await request(app).get("/");
