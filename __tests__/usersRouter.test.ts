@@ -346,3 +346,101 @@ describe("PUT /api/users/me", () => {
     expect(res.status).toBe(500);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PATCH /api/users/me/push-token
+// ---------------------------------------------------------------------------
+
+describe("PATCH /api/users/me/push-token", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .send({ push_token: "device-token-xyz" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when push_token is missing", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .set("Authorization", "Bearer valid.token")
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when push_token is an empty string", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .set("Authorization", "Bearer valid.token")
+      .send({ push_token: "" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 204 and calls updateUser with the new push_token", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockUpdateUser.mockResolvedValueOnce({ ...fakeUser, push_token: "device-token-xyz" });
+
+    const res = await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .set("Authorization", "Bearer valid.token")
+      .send({ push_token: "device-token-xyz" });
+
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({});
+    expect(mockUpdateUser).toHaveBeenCalledWith(fakeUser.id, { push_token: "device-token-xyz" });
+  });
+
+  it("ignores unknown fields and only passes push_token to updateUser", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockUpdateUser.mockResolvedValueOnce({ ...fakeUser, push_token: "device-token-xyz" });
+
+    await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .set("Authorization", "Bearer valid.token")
+      .send({ push_token: "device-token-xyz", display_name: "Hacker", unknown_field: "x" });
+
+    expect(mockUpdateUser).toHaveBeenCalledWith(fakeUser.id, { push_token: "device-token-xyz" });
+  });
+
+  it("returns 500 when updateUser throws", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockUpdateUser.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .patch("/api/users/me/push-token")
+      .set("Authorization", "Bearer valid.token")
+      .send({ push_token: "device-token-xyz" });
+
+    expect(res.status).toBe(500);
+  });
+});
