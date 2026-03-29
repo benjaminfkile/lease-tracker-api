@@ -62,5 +62,8 @@ mileage analytics, push notifications, and Apple/Google subscriptions.
 | 15 | 15 | Testing |
 | 16 | 16 | Documentation & Deployment |
 
+## PR Description Format
+The PR body **must** include `Closes #<issue_number>` (e.g. `Closes #42`) so the issue is automatically closed when the PR is merged.
+
 ## Commit Message Format
 A single plain sentence describing what was done. No `feat:` or conventional commit prefixes.

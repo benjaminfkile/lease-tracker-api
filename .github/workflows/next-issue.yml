@@ -1,14 +1,13 @@
 name: Advance to Next Issue
 
+# Manual fallback only — normal automation runs inside merge-on-approval.yml.
+# Trigger this manually from Actions tab if the queue gets stuck.
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - dev
+  workflow_dispatch:
 
 jobs:
   next-issue:
-    if: github.event.pull_request.merged == true
+    if: true
     runs-on: ubuntu-latest
     permissions:
       issues: write
