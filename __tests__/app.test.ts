@@ -1,6 +1,11 @@
 import request from "supertest";
 import app from "../src/app";
 
+jest.mock("../src/auth/cognitoVerifier", () => ({
+  __esModule: true,
+  default: { verify: jest.fn() },
+}));
+
 jest.mock("../src/db/db", () => ({
   getDb: jest.fn().mockReturnValue({}),
 }));
