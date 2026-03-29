@@ -51,12 +51,15 @@ jobs:
               gh issue close $ISSUE --repo $REPO || true
             done
           else
-            # Fall back: close whichever open queue issue is assigned to Copilot
-            echo "No Closes keyword found — closing Copilot-assigned issue from queue"
-            gh issue list --repo $REPO --assignee "Copilot" --state open --json number --jq '.[].number' | while read ISSUE; do
-              echo "Closing issue #$ISSUE (was assigned to Copilot)"
-              gh issue close $ISSUE --repo $REPO || true
-            done
+            # Fall back: list all open issues and filter for Copilot assignee in jq
+            # (--assignee "Copilot" fails via GraphQL because Copilot is a GitHub App)
+            echo "No Closes keyword found — scanning open issues for Copilot assignee"
+            gh issue list --repo $REPO --state open --json number,assignees --limit 200 | \
+              jq -r '.[] | select(.assignees | map(select(.login == "Copilot")) | length > 0) | .number' | \
+              while read ISSUE; do
+                echo "Closing issue #$ISSUE (was assigned to Copilot)"
+                gh issue close $ISSUE --repo $REPO || true
+              done
           fi
 
       - name: Checkout dev (to read issue queue)
