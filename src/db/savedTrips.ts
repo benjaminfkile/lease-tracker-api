@@ -1,6 +1,6 @@
 import { getDb } from "./db";
 import { ISavedTrip } from "../interfaces";
-import { CreateSavedTripInput } from "../validation/schemas";
+import { CreateSavedTripInput, UpdateSavedTripInput } from "../validation/schemas";
 
 /**
  * Returns the sum of estimated_miles for all active (not completed) saved
@@ -49,6 +49,37 @@ export async function createTrip(
       notes: data.notes ?? null,
       is_completed: data.is_completed ?? false,
     })
+    .returning("*");
+  return trip;
+}
+
+/**
+ * Returns a single saved trip by lease and trip id.
+ * Returns undefined when no matching trip exists.
+ */
+export async function getTrip(
+  leaseId: string,
+  tripId: string
+): Promise<ISavedTrip | undefined> {
+  const db = getDb();
+  return db<ISavedTrip>("saved_trips")
+    .where({ id: tripId, lease_id: leaseId })
+    .first();
+}
+
+/**
+ * Updates the specified fields of an existing saved trip and returns the
+ * updated record. Returns undefined when no matching trip exists.
+ */
+export async function updateTrip(
+  leaseId: string,
+  tripId: string,
+  data: Omit<UpdateSavedTripInput, "lease_id">
+): Promise<ISavedTrip | undefined> {
+  const db = getDb();
+  const [trip] = await db<ISavedTrip>("saved_trips")
+    .where({ id: tripId, lease_id: leaseId })
+    .update({ ...data, updated_at: db.fn.now() } as unknown as Partial<ISavedTrip>)
     .returning("*");
   return trip;
 }
