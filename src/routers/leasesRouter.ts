@@ -19,14 +19,18 @@ import {
   CreateAlertConfigInput,
   UpdateAlertConfigSchema,
   UpdateAlertConfigInput,
+  InviteMemberSchema,
+  InviteMemberInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
-import { createLeaseMember, getLeaseMembers } from "../db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
+import { getUserByEmail } from "../db/users";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
+import { sendPushNotification } from "../services/pushNotifications";
 
 const leasesRouter = express.Router();
 
@@ -41,6 +45,10 @@ type CreateTripBodyInput = Omit<CreateSavedTripInput, "lease_id">;
 // Schema for the POST alerts body — lease_id comes from the URL param, not the body.
 const CreateAlertConfigBodySchema = CreateAlertConfigSchema.omit({ lease_id: true });
 type CreateAlertConfigBodyInput = Omit<CreateAlertConfigInput, "lease_id">;
+
+// Schema for the POST members body — lease_id comes from the URL param, not the body.
+const InviteMemberBodySchema = InviteMemberSchema.omit({ lease_id: true });
+type InviteMemberBodyInput = Omit<InviteMemberInput, "lease_id">;
 
 /**
  * GET /api/leases
@@ -142,6 +150,57 @@ leasesRouter.get(
     try {
       const members = await getLeaseMembers(req.params.leaseId);
       res.status(200).json(members);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/leases/:leaseId/members
+ * Invites a registered user (by email) to the lease as a viewer or editor.
+ * Creates a lease_members row with accepted_at = NULL.
+ * Sends a push notification to the invitee if they have a push_token.
+ * Requires 'owner' role.
+ */
+leasesRouter.post(
+  "/:leaseId/members",
+  authAndLoad,
+  requireLeaseAccess("owner"),
+  validate(InviteMemberBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId } = req.params;
+      const { email, role } = req.body as InviteMemberBodyInput;
+
+      const invitee = await getUserByEmail(email);
+      if (!invitee) {
+        next(new ApiError(404, "User not found"));
+        return;
+      }
+
+      const existing = await getLeaseMember(leaseId, invitee.id);
+      if (existing) {
+        next(new ApiError(409, "User is already a member of this lease"));
+        return;
+      }
+
+      const member = await createLeaseMember(
+        leaseId,
+        invitee.id,
+        role ?? "viewer",
+        req.dbUser!.id
+      );
+
+      if (invitee.push_token) {
+        await sendPushNotification(
+          invitee.push_token,
+          "Lease Invitation",
+          "You have been invited to access a lease."
+        );
+      }
+
+      res.status(201).json(member);
     } catch (err) {
       next(err);
     }

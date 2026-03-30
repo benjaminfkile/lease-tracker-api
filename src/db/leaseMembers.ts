@@ -32,10 +32,11 @@ export async function leaseExists(leaseId: string): Promise<boolean> {
 export async function createLeaseMember(
   leaseId: string,
   userId: string,
-  role: TLeaseRole
+  role: TLeaseRole,
+  invitedBy?: string
 ): Promise<ILeaseMember> {
   const [member] = await getDb()<ILeaseMember>("lease_members")
-    .insert({ lease_id: leaseId, user_id: userId, role })
+    .insert({ lease_id: leaseId, user_id: userId, role, invited_by: invitedBy ?? null })
     .returning("*");
 
   return member;

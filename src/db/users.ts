@@ -32,6 +32,10 @@ export async function updateUser(
   return user;
 }
 
+export async function getUserByEmail(email: string): Promise<IUser | undefined> {
+  return getDb()<IUser>("users").where({ email }).first();
+}
+
 export async function deleteUser(userId: string): Promise<void> {
   const count = await getDb()<IUser>("users").where({ id: userId }).delete();
 
