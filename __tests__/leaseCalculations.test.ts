@@ -229,6 +229,140 @@ describe("computeLeaseSummary — edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
+// computeLeaseSummary — pace calculation
+// ---------------------------------------------------------------------------
+
+describe("computeLeaseSummary — pace calculation", () => {
+  // Lease: 2024-01-01 → 2027-01-01 (1096 days), 36 000 mi allowed, starting_odometer = 0
+
+  it("first day: pace_status = 'on_track' and current_pace_per_month = 0 when no miles driven yet", () => {
+    // days_elapsed = 0, miles_driven = 0 → miles_over_under_pace = 0 (within threshold)
+    const lease = buildLease({ current_odometer: 0 });
+    const s = computeLeaseSummary(lease, 0, "free", "2024-01-01");
+    expect(s.days_elapsed).toBe(0);
+    expect(s.miles_driven).toBe(0);
+    expect(s.current_pace_per_month).toBe(0);
+    expect(s.pace_status).toBe("on_track");
+  });
+
+  it("mid-lease: pace values are computed correctly at the halfway point", () => {
+    // Today ≈ 2025-07-02 — 548 days into a 1096-day lease
+    // current_odometer = 18 000 (roughly on pace for 36 000 over 1096 days)
+    const lease = buildLease({ current_odometer: 18000 });
+    const TODAY = "2025-07-02";
+    const s = computeLeaseSummary(lease, 0, "free", TODAY);
+    expect(s.days_elapsed).toBeGreaterThan(0);
+    expect(s.days_remaining).toBeGreaterThan(0);
+    expect(s.current_pace_per_month).toBeCloseTo((18000 / s.days_elapsed) * 30.44, 2);
+    expect(s.projected_miles_at_end).toBeCloseTo((18000 / s.days_elapsed) * 1096, 2);
+  });
+
+  it("over limit: miles_driven > total_miles_allowed gives negative miles_remaining and 'ahead' pace", () => {
+    // Drive 40 000 in a 36 000-mile lease — already over the cap
+    const lease = buildLease({ current_odometer: 40000 });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.miles_driven).toBe(40000);
+    expect(s.miles_remaining).toBe(-4000); // 36000 - 40000 - 0
+    expect(s.pace_status).toBe("ahead");
+    expect(s.projected_overage).toBeGreaterThan(0);
+  });
+
+  it("no readings: current_pace_per_month = 0 and pace_status = 'behind' when current_odometer is null", () => {
+    // null odometer → miles_driven = 0; after 366 days expected ≈ 12 021 mi → far behind
+    const lease = buildLease({ current_odometer: null });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.miles_driven).toBe(0);
+    expect(s.current_pace_per_month).toBe(0);
+    expect(s.pace_status).toBe("behind");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLeaseSummary — projected overage rounding
+// ---------------------------------------------------------------------------
+
+describe("computeLeaseSummary — projected overage rounding", () => {
+  it("projected_overage is never negative even when projected miles are well under the allowance", () => {
+    // Only 1 000 mi driven in 366 days → projected ≈ 2 737 mi, far below 36 000
+    const lease = buildLease({ current_odometer: 1000 });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.projected_overage).toBe(0);
+    expect(s.projected_overage_cost).toBe(0);
+  });
+
+  it("projected_overage is exactly 0 when projected miles equal total_miles_allowed", () => {
+    // On the last day of the lease, having driven exactly total_miles_allowed:
+    // projected = (36000 / 1096) * 1096 = 36000 → overage = 0
+    const lease = buildLease({
+      current_odometer: 36000,
+      lease_end_date: "2027-01-01",
+    });
+    const s = computeLeaseSummary(lease, 0, "free", "2027-01-01");
+    expect(s.projected_overage).toBe(0);
+  });
+
+  it("projected_overage carries fractional miles without integer rounding", () => {
+    // Drive 25 000 mi in 366 days of 1096-day lease
+    // projected = (25000 / 366) * 1096 ≈ 74836.6..., overage ≈ 38836.6...
+    const lease = buildLease({ current_odometer: 25000 });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    const expectedProjected = (25000 / 366) * 1096;
+    const expectedOverage = expectedProjected - 36000;
+    expect(s.projected_overage).toBeCloseTo(expectedOverage, 4);
+    // Verify the fractional portion was preserved, not truncated
+    expect(s.projected_overage % 1).not.toBe(0);
+  });
+
+  it("projected_overage_cost equals projected_overage × overage_cost_per_mile (fractional)", () => {
+    const lease = buildLease({ current_odometer: 25000, overage_cost_per_mile: "0.25" });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.projected_overage_cost).toBeCloseTo(s.projected_overage * 0.25, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLeaseSummary — miles_remaining and reserved trip miles
+// ---------------------------------------------------------------------------
+
+describe("computeLeaseSummary — miles_remaining reserved trip miles", () => {
+  it("miles_remaining equals total_miles_allowed minus miles_driven when reserved = 0", () => {
+    const lease = buildLease({ current_odometer: 5000 });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.miles_remaining).toBe(31000); // 36000 - 5000 - 0
+    expect(s.reserved_trip_miles).toBe(0);
+  });
+
+  it("miles_remaining is reduced by reserved trip miles", () => {
+    const lease = buildLease({ current_odometer: 5000 });
+    const s = computeLeaseSummary(lease, 1000, "free", "2025-01-01");
+    expect(s.miles_remaining).toBe(30000); // 36000 - 5000 - 1000
+    expect(s.reserved_trip_miles).toBe(1000);
+  });
+
+  it("miles_remaining can be negative when reserved trip miles exceed the remaining allowance", () => {
+    // 35 000 mi driven leaves 1 000 mi, but 2 000 mi are reserved → −1 000
+    const lease = buildLease({ current_odometer: 35000 });
+    const s = computeLeaseSummary(lease, 2000, "free", "2025-01-01");
+    expect(s.miles_remaining).toBe(-1000); // 36000 - 35000 - 2000
+    expect(s.reserved_trip_miles).toBe(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLeaseSummary — recommended_daily_miles
+// ---------------------------------------------------------------------------
+
+describe("computeLeaseSummary — recommended_daily_miles", () => {
+  it("returns 0 when today is past lease_end_date (days_remaining is negative)", () => {
+    // Lease ended 2024-06-01; today is 2025-01-01 → days_remaining < 0
+    const lease = buildLease({ lease_end_date: "2024-06-01" });
+    const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
+    expect(s.days_remaining).toBeLessThan(0);
+    expect(s.recommended_daily_miles).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // computeBuybackAnalysis
 // ---------------------------------------------------------------------------
 
