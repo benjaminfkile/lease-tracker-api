@@ -24,7 +24,7 @@ import {
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
-import { createLeaseMember, getLeaseMember, getLeaseMembers } from "../db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
@@ -201,6 +201,41 @@ leasesRouter.post(
       }
 
       res.status(201).json(member);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/leases/:leaseId/members/accept
+ * Accepts an outstanding invitation for the current user by setting
+ * accepted_at = NOW(). Returns 404 if no invitation exists, 409 if
+ * the invitation has already been accepted.
+ */
+leasesRouter.post(
+  "/:leaseId/members/accept",
+  authAndLoad,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId } = req.params;
+      const userId = req.dbUser!.id;
+
+      const invitation = await getLeaseMember(leaseId, userId);
+      if (!invitation) {
+        const exists = await leaseExists(leaseId);
+        const message = exists ? "Invitation not found" : "Lease not found";
+        next(new ApiError(404, message));
+        return;
+      }
+
+      if (invitation.accepted_at !== null) {
+        next(new ApiError(409, "Invitation already accepted"));
+        return;
+      }
+
+      const member = await acceptLeaseMember(leaseId, userId);
+      res.status(200).json(member);
     } catch (err) {
       next(err);
     }

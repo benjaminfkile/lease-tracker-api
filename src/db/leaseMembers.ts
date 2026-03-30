@@ -41,3 +41,15 @@ export async function createLeaseMember(
 
   return member;
 }
+
+export async function acceptLeaseMember(
+  leaseId: string,
+  userId: string
+): Promise<ILeaseMember | undefined> {
+  const [member] = await getDb()<ILeaseMember>("lease_members")
+    .where({ lease_id: leaseId, user_id: userId })
+    .update({ accepted_at: getDb().fn.now() })
+    .returning("*");
+
+  return member;
+}
