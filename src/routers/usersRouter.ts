@@ -1,8 +1,8 @@
 import express, { NextFunction, Request, Response } from "express";
 import { authAndLoad } from "../middleware/authAndLoad";
 import { validate } from "../middleware/validate";
-import { UpdateUserSchema, UpdateUserInput, UpdatePushTokenSchema, UpdatePushTokenInput } from "../validation/schemas";
-import { updateUser } from "../db/users";
+import { UpdateUserSchema, UpdateUserInput, UpdatePushTokenSchema, UpdatePushTokenInput, DeleteUserSchema } from "../validation/schemas";
+import { updateUser, deleteUser } from "../db/users";
 
 const usersRouter = express.Router();
 
@@ -65,6 +65,25 @@ usersRouter.patch(
     try {
       const { push_token } = req.body as UpdatePushTokenInput;
       await updateUser(req.dbUser!.id, { push_token });
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/users/me
+ * Hard-deletes the authenticated user and all their data via FK cascade.
+ * Requires { confirm: "DELETE" } in the request body to prevent accidents.
+ */
+usersRouter.delete(
+  "/me",
+  authAndLoad,
+  validate(DeleteUserSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await deleteUser(req.dbUser!.id);
       res.status(204).send();
     } catch (err) {
       next(err);

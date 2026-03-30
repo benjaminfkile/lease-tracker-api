@@ -31,3 +31,11 @@ export async function updateUser(
 
   return user;
 }
+
+export async function deleteUser(userId: string): Promise<void> {
+  const count = await getDb()<IUser>("users").where({ id: userId }).delete();
+
+  if (count === 0) {
+    throw new ApiError(404, "User not found");
+  }
+}
