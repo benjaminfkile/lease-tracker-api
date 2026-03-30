@@ -1,10 +1,12 @@
 import express, { NextFunction, Request, Response } from "express";
 import { authAndLoad } from "../middleware/authAndLoad";
 import { validate } from "../middleware/validate";
+import { requireLeaseAccess } from "../middleware/requireLeaseAccess";
 import { CreateLeaseSchema, CreateLeaseInput } from "../validation/schemas";
-import { getLeases, createLease } from "../db/leases";
+import { getLeases, createLease, getLease } from "../db/leases";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
+import { ApiError } from "../utils/ApiError";
 
 const leasesRouter = express.Router();
 
@@ -43,6 +45,28 @@ leasesRouter.post(
       await createLeaseMember(lease.id, req.dbUser!.id, "owner");
       await createDefaultAlertConfigs(lease.id, req.dbUser!.id);
       res.status(201).json(lease);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId
+ * Returns a single lease with its member list. Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+      res.status(200).json(lease);
     } catch (err) {
       next(err);
     }
