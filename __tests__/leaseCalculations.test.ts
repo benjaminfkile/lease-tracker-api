@@ -1,4 +1,4 @@
-import { computeLeaseSummary, daysBetween } from "../src/utils/leaseCalculations";
+import { computeBuybackAnalysis, computeLeaseSummary, daysBetween } from "../src/utils/leaseCalculations";
 import { ILease } from "../src/interfaces";
 
 // ---------------------------------------------------------------------------
@@ -225,5 +225,64 @@ describe("computeLeaseSummary — edge cases", () => {
     });
     const s = computeLeaseSummary(lease, 0, "free", "2025-01-01");
     expect(s.projected_overage_cost).toBeCloseTo(s.projected_overage * 0.3, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeBuybackAnalysis
+// ---------------------------------------------------------------------------
+
+describe("computeBuybackAnalysis", () => {
+  it("returns on_track recommendation when projected_overage is 0", () => {
+    const result = computeBuybackAnalysis(0, 0.25, 0.15);
+    expect(result.recommendation).toBe("on_track");
+  });
+
+  it("returns buy_now when dealer_buyback_rate < overage_cost_per_mile and overage > 0", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.15);
+    expect(result.recommendation).toBe("buy_now");
+  });
+
+  it("returns pay_at_end when dealer_buyback_rate >= overage_cost_per_mile and overage > 0", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.30);
+    expect(result.recommendation).toBe("pay_at_end");
+  });
+
+  it("returns pay_at_end when dealer_buyback_rate equals overage_cost_per_mile and overage > 0", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.25);
+    expect(result.recommendation).toBe("pay_at_end");
+  });
+
+  it("calculates cost_if_paying_at_turnin correctly", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.15);
+    expect(result.cost_if_paying_at_turnin).toBeCloseTo(250, 2);
+  });
+
+  it("calculates cost_if_buying_now correctly", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.15);
+    expect(result.cost_if_buying_now).toBeCloseTo(150, 2);
+  });
+
+  it("calculates savings correctly when buy_now is cheaper", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.15);
+    expect(result.savings).toBeCloseTo(100, 2);
+  });
+
+  it("calculates negative savings when pay_at_end is cheaper", () => {
+    const result = computeBuybackAnalysis(1000, 0.25, 0.30);
+    expect(result.savings).toBeCloseTo(-50, 2);
+  });
+
+  it("returns zero costs and savings when projected_overage_miles is 0", () => {
+    const result = computeBuybackAnalysis(0, 0.25, 0.15);
+    expect(result.projected_overage_miles).toBe(0);
+    expect(result.cost_if_paying_at_turnin).toBe(0);
+    expect(result.cost_if_buying_now).toBe(0);
+    expect(result.savings).toBe(0);
+  });
+
+  it("reflects projected_overage_miles in the output", () => {
+    const result = computeBuybackAnalysis(500, 0.25, 0.15);
+    expect(result.projected_overage_miles).toBe(500);
   });
 });
