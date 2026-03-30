@@ -2,8 +2,8 @@ import express, { NextFunction, Request, Response } from "express";
 import { authAndLoad } from "../middleware/authAndLoad";
 import { validate } from "../middleware/validate";
 import { requireLeaseAccess } from "../middleware/requireLeaseAccess";
-import { CreateLeaseSchema, CreateLeaseInput } from "../validation/schemas";
-import { getLeases, createLease, getLease } from "../db/leases";
+import { CreateLeaseSchema, CreateLeaseInput, UpdateLeaseSchema, UpdateLeaseInput } from "../validation/schemas";
+import { getLeases, createLease, getLease, updateLease } from "../db/leases";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { ApiError } from "../utils/ApiError";
@@ -62,6 +62,30 @@ leasesRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+      res.status(200).json(lease);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PUT /api/leases/:leaseId
+ * Updates lease fields. Requires at least 'editor' role.
+ */
+leasesRouter.put(
+  "/:leaseId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(UpdateLeaseSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = req.body as UpdateLeaseInput;
+      const lease = await updateLease(req.params.leaseId, data);
       if (!lease) {
         next(new ApiError(404, "Lease not found"));
         return;
