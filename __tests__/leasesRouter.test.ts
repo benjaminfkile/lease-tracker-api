@@ -40,6 +40,10 @@ jest.mock("../src/db/savedTrips", () => ({
   getReservedTripMiles: jest.fn(),
 }));
 
+jest.mock("../src/db/readings", () => ({
+  getReadings: jest.fn(),
+}));
+
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
@@ -47,6 +51,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../s
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
 import { getReservedTripMiles } from "../src/db/savedTrips";
+import { getReadings } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -61,6 +66,7 @@ const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
+const mockGetReadings = getReadings as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1015,5 +1021,212 @@ describe("GET /api/leases/:leaseId/summary", () => {
       .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/readings
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/readings", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const fakeReading = {
+    id: "dddddddd-0000-0000-0000-000000000001",
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    odometer: 12500,
+    reading_date: "2025-06-15",
+    notes: null,
+    source: "manual",
+    created_at: new Date("2025-06-15T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/readings`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 with an empty array when there are no readings", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetReadings.mockResolvedValueOnce([]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it("returns 200 with readings on success", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockResolvedValueOnce([fakeReading]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(fakeReading.id);
+    expect(res.body[0].odometer).toBe(fakeReading.odometer);
+    expect(res.body[0].reading_date).toBe(fakeReading.reading_date);
+  });
+
+  it("allows viewer role to access readings", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetReadings.mockResolvedValueOnce([fakeReading]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("calls getReadings with the correct leaseId and no options when no query params", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockResolvedValueOnce([]);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReadings).toHaveBeenCalledWith(fakeLease.id, {
+      limit: undefined,
+      before: undefined,
+    });
+  });
+
+  it("passes limit to getReadings when ?limit= is provided", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockResolvedValueOnce([fakeReading]);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?limit=5`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReadings).toHaveBeenCalledWith(fakeLease.id, {
+      limit: 5,
+      before: undefined,
+    });
+  });
+
+  it("passes before to getReadings when ?before= is provided", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockResolvedValueOnce([fakeReading]);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?before=2025-07-01`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReadings).toHaveBeenCalledWith(fakeLease.id, {
+      limit: undefined,
+      before: "2025-07-01",
+    });
+  });
+
+  it("passes both limit and before when both query params are provided", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockResolvedValueOnce([fakeReading]);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?limit=10&before=2025-07-01`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReadings).toHaveBeenCalledWith(fakeLease.id, {
+      limit: 10,
+      before: "2025-07-01",
+    });
+  });
+
+  it("returns 400 when limit is not a positive integer", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?limit=abc`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when limit is zero", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?limit=0`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when before is not a valid date format", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings?before=not-a-date`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 500 when getReadings throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetReadings.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
   });
 });
