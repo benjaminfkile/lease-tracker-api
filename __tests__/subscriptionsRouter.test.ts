@@ -254,6 +254,52 @@ describe("POST /api/subscriptions/apple/verify", () => {
     });
   });
 
+  it("calls upsertSubscription with is_active=true for an active receipt (triggers premium tier)", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyAppleReceipt.mockResolvedValueOnce(fakeAppleResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    await request(buildApp())
+      .post("/api/subscriptions/apple/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ receipt_data: "active-receipt", product_id: "com.example.premium" });
+
+    expect(mockUpsertSubscription).toHaveBeenCalledWith(
+      fakeUser.id,
+      expect.objectContaining({ is_active: true })
+    );
+  });
+
+  it("calls upsertSubscription with is_active=false for an expired receipt (tier stays free)", async () => {
+    const expiredAppleResult = {
+      ...fakeAppleResult,
+      is_active: false,
+      expires_at: new Date("2020-01-01T00:00:00Z"),
+    };
+
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyAppleReceipt.mockResolvedValueOnce(expiredAppleResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    await request(buildApp())
+      .post("/api/subscriptions/apple/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ receipt_data: "expired-receipt", product_id: "com.example.premium" });
+
+    expect(mockUpsertSubscription).toHaveBeenCalledWith(
+      fakeUser.id,
+      expect.objectContaining({ is_active: false })
+    );
+  });
+
   it("returns 400 when verifyAppleReceipt throws an ApiError", async () => {
     const { ApiError } = jest.requireActual("../src/utils/ApiError") as typeof import("../src/utils/ApiError");
     mockVerify.mockResolvedValueOnce({

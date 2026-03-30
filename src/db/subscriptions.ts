@@ -58,11 +58,13 @@ export async function upsertSubscription(
       .returning("*");
   }
 
-  // Keep users table in sync
-  await db("users").where({ id: userId }).update({
-    subscription_tier: "premium",
-    subscription_expires_at: data.expires_at,
-  });
+  // Keep users table in sync — only promote to premium when the subscription is active
+  if (data.is_active) {
+    await db("users").where({ id: userId }).update({
+      subscription_tier: "premium",
+      subscription_expires_at: data.expires_at,
+    });
+  }
 
   return subscription;
 }
