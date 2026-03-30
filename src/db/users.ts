@@ -32,6 +32,10 @@ export async function updateUser(
   return user;
 }
 
+export async function getUserById(userId: string): Promise<IUser | undefined> {
+  return getDb()<IUser>("users").where({ id: userId }).first();
+}
+
 export async function getUserByEmail(email: string): Promise<IUser | undefined> {
   return getDb()<IUser>("users").where({ email }).first();
 }
