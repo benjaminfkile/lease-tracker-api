@@ -34,6 +34,7 @@ jest.mock("../src/db/leaseMembers", () => ({
 
 jest.mock("../src/db/alertConfigs", () => ({
   createDefaultAlertConfigs: jest.fn(),
+  getAlertConfigs: jest.fn(),
 }));
 
 jest.mock("../src/db/savedTrips", () => ({
@@ -59,7 +60,7 @@ import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
-import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs } from "../src/db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
@@ -75,6 +76,7 @@ const mockCreateLeaseMember = createLeaseMember as jest.Mock;
 const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
+const mockGetAlertConfigs = getAlertConfigs as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
 const mockGetTrips = getTrips as jest.Mock;
 const mockCreateTrip = createTrip as jest.Mock;
@@ -1041,6 +1043,154 @@ describe("GET /api/leases/:leaseId/summary", () => {
       .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/alerts
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/alerts", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const fakeAlertConfigs = [
+    {
+      id: "aaaaaaaa-1111-0000-0000-000000000001",
+      lease_id: fakeLease.id,
+      user_id: fakeUser.id,
+      alert_type: "miles_threshold",
+      threshold_value: 80,
+      is_enabled: true,
+      last_sent_at: null,
+      created_at: new Date("2024-01-01T00:00:00Z"),
+    },
+    {
+      id: "aaaaaaaa-1111-0000-0000-000000000002",
+      lease_id: fakeLease.id,
+      user_id: fakeUser.id,
+      alert_type: "over_pace",
+      threshold_value: null,
+      is_enabled: true,
+      last_sent_at: null,
+      created_at: new Date("2024-01-01T00:00:00Z"),
+    },
+    {
+      id: "aaaaaaaa-1111-0000-0000-000000000003",
+      lease_id: fakeLease.id,
+      user_id: fakeUser.id,
+      alert_type: "days_remaining",
+      threshold_value: 30,
+      is_enabled: true,
+      last_sent_at: null,
+      created_at: new Date("2024-01-01T00:00:00Z"),
+    },
+  ];
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/alerts`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 with an empty array when no alert configs exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetAlertConfigs.mockResolvedValueOnce([]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it("returns 200 with all alert configs for the lease", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetAlertConfigs.mockResolvedValueOnce(fakeAlertConfigs);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(3);
+    expect(res.body[0].alert_type).toBe("miles_threshold");
+    expect(res.body[1].alert_type).toBe("over_pace");
+    expect(res.body[2].alert_type).toBe("days_remaining");
+  });
+
+  it("allows viewer role to access alerts", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetAlertConfigs.mockResolvedValueOnce(fakeAlertConfigs);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("calls getAlertConfigs with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetAlertConfigs.mockResolvedValueOnce(fakeAlertConfigs);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetAlertConfigs).toHaveBeenCalledWith(fakeLease.id);
+  });
+
+  it("returns 500 when getAlertConfigs throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetAlertConfigs.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/alerts`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
   });
 });
 
