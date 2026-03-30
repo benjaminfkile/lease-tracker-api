@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { ISavedTrip } from "../interfaces";
 
 /**
  * Returns the sum of estimated_miles for all active (not completed) saved
@@ -12,4 +13,14 @@ export async function getReservedTripMiles(leaseId: string): Promise<number> {
     .first<{ total: string | number | null }>();
 
   return Number(result?.total ?? 0);
+}
+
+/**
+ * Returns all saved trips for the given lease ordered by trip_date ASC NULLS LAST.
+ */
+export async function getTrips(leaseId: string): Promise<ISavedTrip[]> {
+  const db = getDb();
+  return db("saved_trips")
+    .where({ lease_id: leaseId })
+    .orderByRaw("trip_date ASC NULLS LAST");
 }

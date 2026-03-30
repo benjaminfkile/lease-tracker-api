@@ -16,7 +16,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../d
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
-import { getReservedTripMiles } from "../db/savedTrips";
+import { getReservedTripMiles, getTrips } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
@@ -136,6 +136,28 @@ leasesRouter.get(
         req.dbUser!.subscription_tier
       );
       res.status(200).json(summary);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/trips
+ * Returns all saved trips for the lease separated into active and completed,
+ * ordered by trip_date ASC NULLS LAST.
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/trips",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const trips = await getTrips(req.params.leaseId);
+      const active = trips.filter((t) => !t.is_completed);
+      const completed = trips.filter((t) => t.is_completed);
+      res.status(200).json({ active, completed });
     } catch (err) {
       next(err);
     }
