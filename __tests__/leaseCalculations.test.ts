@@ -1,5 +1,5 @@
-import { computeBuybackAnalysis, computeLeaseEndOptions, computeLeaseSummary, daysBetween } from "../src/utils/leaseCalculations";
-import { ILease } from "../src/interfaces";
+import { computeBuybackAnalysis, computeLeaseEndOptions, computeLeaseSummary, computeMileageHistory, daysBetween } from "../src/utils/leaseCalculations";
+import { ILease, IOdometerReading } from "../src/interfaces";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -348,5 +348,135 @@ describe("computeLeaseEndOptions", () => {
   it("returns zero roll_cost when days_remaining is 0", () => {
     const result = computeLeaseEndOptions(1000, 0.25, 15000, 0, NEW_MONTHLY);
     expect(result.roll_cost).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeMileageHistory
+// ---------------------------------------------------------------------------
+
+describe("computeMileageHistory", () => {
+  function buildReadings(
+    data: Array<{ reading_date: string; odometer: number }>
+  ): IOdometerReading[] {
+    return data.map((d, i) => ({
+      id: `reading-${i}`,
+      lease_id: "aaaaaaaa-0000-0000-0000-000000000001",
+      user_id: "00000000-0000-0000-0000-000000000001",
+      odometer: d.odometer,
+      reading_date: d.reading_date,
+      notes: null,
+      source: "manual",
+      created_at: new Date("2024-01-15T00:00:00Z"),
+    }));
+  }
+
+  // Base lease: 2024-01-01 → 2025-01-01, 12 000 mi/yr, starting_odometer = 0
+  const lease = buildLease({
+    lease_start_date: "2024-01-01",
+    lease_end_date: "2025-01-01",
+    miles_per_year: 12000,
+    starting_odometer: 0,
+    current_odometer: 0,
+  });
+
+  it("returns an empty array when today is before lease_start_date", () => {
+    const result = computeMileageHistory(lease, [], "2023-12-31");
+    expect(result).toHaveLength(0);
+  });
+
+  it("returns one entry for the start month when today is within the first month", () => {
+    const result = computeMileageHistory(lease, [], "2024-01-15");
+    expect(result).toHaveLength(1);
+    expect(result[0].month).toBe("2024-01");
+  });
+
+  it("includes all months from start through the current month", () => {
+    const result = computeMileageHistory(lease, [], "2024-03-15");
+    expect(result).toHaveLength(3);
+    expect(result[0].month).toBe("2024-01");
+    expect(result[1].month).toBe("2024-02");
+    expect(result[2].month).toBe("2024-03");
+  });
+
+  it("caps at lease_end_date month when today is after lease_end_date", () => {
+    // Months 2024-01 through 2025-01 = 13 entries
+    const result = computeMileageHistory(lease, [], "2025-06-01");
+    expect(result).toHaveLength(13);
+    expect(result[result.length - 1].month).toBe("2025-01");
+  });
+
+  it("sets expected_miles to miles_per_year / 12 for every entry", () => {
+    const result = computeMileageHistory(lease, [], "2024-03-01");
+    result.forEach((entry) => {
+      expect(entry.expected_miles).toBeCloseTo(1000, 5);
+    });
+  });
+
+  it("returns miles_driven = 0 for a month with no readings", () => {
+    const result = computeMileageHistory(lease, [], "2024-01-31");
+    expect(result[0].miles_driven).toBe(0);
+  });
+
+  it("computes miles_driven correctly for a month with one reading", () => {
+    const readings = buildReadings([
+      { reading_date: "2024-01-15", odometer: 500 },
+    ]);
+    const result = computeMileageHistory(lease, readings, "2024-01-31");
+    expect(result[0].miles_driven).toBe(500);
+  });
+
+  it("computes miles_driven correctly across two consecutive months", () => {
+    const readings = buildReadings([
+      { reading_date: "2024-01-31", odometer: 1000 },
+      { reading_date: "2024-02-28", odometer: 2200 },
+    ]);
+    const result = computeMileageHistory(lease, readings, "2024-02-28");
+    expect(result[0].miles_driven).toBe(1000);
+    expect(result[1].miles_driven).toBe(1200);
+  });
+
+  it("uses the last reading in a month when multiple readings exist in that month", () => {
+    const readings = buildReadings([
+      { reading_date: "2024-01-10", odometer: 300 },
+      { reading_date: "2024-01-25", odometer: 800 },
+    ]);
+    const result = computeMileageHistory(lease, readings, "2024-01-31");
+    expect(result[0].miles_driven).toBe(800);
+  });
+
+  it("uses starting_odometer as baseline for the first month with no prior reading", () => {
+    const l = buildLease({ starting_odometer: 10000, current_odometer: 10000 });
+    const readings = buildReadings([
+      { reading_date: "2024-01-15", odometer: 10500 },
+    ]);
+    const result = computeMileageHistory(l, readings, "2024-01-31");
+    expect(result[0].miles_driven).toBe(500);
+  });
+
+  it("returns miles_driven = 0 for a month with no readings when a prior reading exists", () => {
+    const readings = buildReadings([
+      { reading_date: "2024-01-31", odometer: 1000 },
+    ]);
+    const result = computeMileageHistory(lease, readings, "2024-02-28");
+    expect(result[0].miles_driven).toBe(1000);
+    expect(result[1].miles_driven).toBe(0);
+  });
+
+  it("clamps miles_driven to 0 and never returns a negative value", () => {
+    const l = buildLease({ starting_odometer: 1000, current_odometer: 1000 });
+    // Odometer lower than starting_odometer (invalid data, but must not crash)
+    const readings = buildReadings([
+      { reading_date: "2024-01-15", odometer: 500 },
+    ]);
+    const result = computeMileageHistory(l, readings, "2024-01-31");
+    expect(result[0].miles_driven).toBe(0);
+  });
+
+  it("returns entries with all three required fields", () => {
+    const result = computeMileageHistory(lease, [], "2024-01-31");
+    expect(result[0]).toHaveProperty("month");
+    expect(result[0]).toHaveProperty("miles_driven");
+    expect(result[0]).toHaveProperty("expected_miles");
   });
 });

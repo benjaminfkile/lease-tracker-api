@@ -146,6 +146,19 @@ export async function deleteOdometerReading(
 }
 
 /**
+ * Returns all odometer readings for the given lease, ordered by
+ * reading_date ASC (oldest first). Used for mileage history computations.
+ *
+ * @param leaseId - UUID of the lease
+ */
+export async function getReadingsAsc(leaseId: string): Promise<IOdometerReading[]> {
+  const db = getDb();
+  return db<IOdometerReading>("odometer_readings")
+    .where({ lease_id: leaseId })
+    .orderBy("reading_date", "asc");
+}
+
+/**
  * Updates an odometer reading and recomputes the lease's current_odometer
  * cache using MAX(odometer) across all readings for the lease.
  *
