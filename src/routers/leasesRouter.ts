@@ -3,7 +3,7 @@ import { authAndLoad } from "../middleware/authAndLoad";
 import { validate } from "../middleware/validate";
 import { requireLeaseAccess } from "../middleware/requireLeaseAccess";
 import { CreateLeaseSchema, CreateLeaseInput, UpdateLeaseSchema, UpdateLeaseInput } from "../validation/schemas";
-import { getLeases, createLease, getLease, updateLease } from "../db/leases";
+import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { ApiError } from "../utils/ApiError";
@@ -91,6 +91,29 @@ leasesRouter.put(
         return;
       }
       res.status(200).json(lease);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/leases/:leaseId
+ * Soft-deletes a lease by setting is_active = false. Only the lease owner
+ * may delete. Preserves history — no data is permanently removed.
+ */
+leasesRouter.delete(
+  "/:leaseId",
+  authAndLoad,
+  requireLeaseAccess("owner"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lease = await deleteLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

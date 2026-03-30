@@ -67,6 +67,21 @@ export async function updateLease(
 }
 
 /**
+ * Soft-deletes a lease by setting is_active = false. Returns the updated
+ * record, or undefined when no lease with the given id exists.
+ */
+export async function deleteLease(
+  leaseId: string
+): Promise<ILease | undefined> {
+  const [lease] = await getDb()<ILease>("leases")
+    .where({ id: leaseId })
+    .update({ is_active: false, updated_at: getDb().fn.now() } as unknown as Partial<ILease>)
+    .returning("*");
+
+  return lease;
+}
+
+/**
  * Returns all active leases for the given user — both leases they own
  * and leases they have been added to via lease_members — ordered by
  * lease_end_date ASC (soonest ending first).
