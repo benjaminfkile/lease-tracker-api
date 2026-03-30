@@ -2,9 +2,16 @@ import express, { NextFunction, Request, Response } from "express";
 import { authAndLoad } from "../middleware/authAndLoad";
 import { validate } from "../middleware/validate";
 import { requireLeaseAccess } from "../middleware/requireLeaseAccess";
-import { CreateLeaseSchema, CreateLeaseInput, UpdateLeaseSchema, UpdateLeaseInput } from "../validation/schemas";
+import {
+  CreateLeaseSchema,
+  CreateLeaseInput,
+  UpdateLeaseSchema,
+  UpdateLeaseInput,
+  CreateOdometerReadingSchema,
+  CreateOdometerReadingInput,
+} from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
-import { getReadings } from "../db/readings";
+import { getReadings, createOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { getReservedTripMiles } from "../db/savedTrips";
@@ -12,6 +19,10 @@ import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
 const leasesRouter = express.Router();
+
+// Schema for the POST readings body — lease_id comes from the URL param, not the body.
+const CreateReadingBodySchema = CreateOdometerReadingSchema.omit({ lease_id: true });
+type CreateReadingBodyInput = Omit<CreateOdometerReadingInput, "lease_id">;
 
 /**
  * GET /api/leases
@@ -168,6 +179,69 @@ leasesRouter.get(
         before: parsedBefore,
       });
       res.status(200).json(readings);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/leases/:leaseId/readings
+ * Records a new odometer reading for the lease.
+ * Business rules enforced:
+ *   - reading_date must be on or after the lease start date
+ *   - odometer must be >= the lease's starting_odometer
+ *   - odometer must not go backward (must be >= current_odometer cache)
+ * After inserting the row the lease's current_odometer cache is updated if
+ * the new value is the highest recorded so far.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.post(
+  "/:leaseId/readings",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(CreateReadingBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId } = req.params;
+      const data = req.body as CreateReadingBodyInput;
+
+      const lease = await getLease(leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+
+      if (data.reading_date < lease.lease_start_date) {
+        next(
+          new ApiError(
+            400,
+            "reading_date must be on or after the lease start date"
+          )
+        );
+        return;
+      }
+
+      if (data.odometer < lease.starting_odometer) {
+        next(
+          new ApiError(
+            400,
+            "odometer must be greater than or equal to the lease starting odometer"
+          )
+        );
+        return;
+      }
+
+      if (
+        lease.current_odometer !== null &&
+        data.odometer < lease.current_odometer
+      ) {
+        next(new ApiError(400, "odometer reading cannot go backward"));
+        return;
+      }
+
+      const reading = await createOdometerReading(leaseId, req.dbUser!.id, data);
+      res.status(201).json(reading);
     } catch (err) {
       next(err);
     }
