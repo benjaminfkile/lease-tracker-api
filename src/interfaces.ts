@@ -102,3 +102,34 @@ export interface IAlertConfig {
   last_sent_at: Date | null;
   created_at: Date;
 }
+
+export interface ISavedTrip {
+  id: string;
+  lease_id: string;
+  user_id: string;
+  name: string;
+  estimated_miles: number;
+  trip_date: string | null;
+  notes: string | null;
+  is_completed: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ILeaseSummary {
+  miles_driven: number;
+  miles_remaining: number;
+  days_elapsed: number;
+  days_remaining: number;
+  lease_length_days: number;
+  expected_miles_to_date: number;
+  current_pace_per_month: number;
+  pace_status: "ahead" | "on_track" | "behind";
+  miles_over_under_pace: number;
+  projected_miles_at_end: number;
+  projected_overage: number;
+  projected_overage_cost: number;
+  recommended_daily_miles: number;
+  reserved_trip_miles: number;
+  is_premium: boolean;
+}

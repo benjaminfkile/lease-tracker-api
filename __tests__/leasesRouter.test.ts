@@ -36,12 +36,17 @@ jest.mock("../src/db/alertConfigs", () => ({
   createDefaultAlertConfigs: jest.fn(),
 }));
 
+jest.mock("../src/db/savedTrips", () => ({
+  getReservedTripMiles: jest.fn(),
+}));
+
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
+import { getReservedTripMiles } from "../src/db/savedTrips";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -55,6 +60,7 @@ const mockCreateLeaseMember = createLeaseMember as jest.Mock;
 const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
+const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -852,5 +858,162 @@ describe("DELETE /api/leases/:leaseId", () => {
       .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/summary
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/summary", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/summary`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the user is not a member of the lease", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 when getLease returns undefined", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 200 with summary fields on success", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(500);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("miles_driven");
+    expect(res.body).toHaveProperty("miles_remaining");
+    expect(res.body).toHaveProperty("days_elapsed");
+    expect(res.body).toHaveProperty("days_remaining");
+    expect(res.body).toHaveProperty("lease_length_days");
+    expect(res.body).toHaveProperty("expected_miles_to_date");
+    expect(res.body).toHaveProperty("current_pace_per_month");
+    expect(res.body).toHaveProperty("pace_status");
+    expect(res.body).toHaveProperty("miles_over_under_pace");
+    expect(res.body).toHaveProperty("projected_miles_at_end");
+    expect(res.body).toHaveProperty("projected_overage");
+    expect(res.body).toHaveProperty("projected_overage_cost");
+    expect(res.body).toHaveProperty("recommended_daily_miles");
+    expect(res.body).toHaveProperty("reserved_trip_miles");
+    expect(res.body).toHaveProperty("is_premium");
+  });
+
+  it("sets is_premium = false for a free-tier user", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.is_premium).toBe(false);
+  });
+
+  it("sets reserved_trip_miles to the value returned by getReservedTripMiles", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(1200);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.reserved_trip_miles).toBe(1200);
+  });
+
+  it("calls getReservedTripMiles with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReservedTripMiles).toHaveBeenCalledWith(fakeLease.id);
+  });
+
+  it("returns 500 when getReservedTripMiles throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+
+  it("allows viewer role to access summary", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/summary`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
   });
 });
