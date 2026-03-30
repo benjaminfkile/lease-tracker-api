@@ -13,12 +13,14 @@ import {
   UpdateOdometerReadingInput,
   CreateSavedTripSchema,
   CreateSavedTripInput,
+  UpdateSavedTripSchema,
+  UpdateSavedTripInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
-import { getReservedTripMiles, getTrips, createTrip } from "../db/savedTrips";
+import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
@@ -186,6 +188,36 @@ leasesRouter.post(
       const data = req.body as CreateTripBodyInput;
       const trip = await createTrip(req.params.leaseId, req.dbUser!.id, data);
       res.status(201).json(trip);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PUT /api/leases/:leaseId/trips/:tripId
+ * Updates an existing saved trip.
+ * Updatable fields: name, estimated_miles, trip_date, notes, is_completed.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.put(
+  "/:leaseId/trips/:tripId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(UpdateSavedTripSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, tripId } = req.params;
+      const data = req.body as UpdateSavedTripInput;
+
+      const existing = await getTrip(leaseId, tripId);
+      if (!existing) {
+        next(new ApiError(404, "Trip not found"));
+        return;
+      }
+
+      const updated = await updateTrip(leaseId, tripId, data);
+      res.status(200).json(updated);
     } catch (err) {
       next(err);
     }
