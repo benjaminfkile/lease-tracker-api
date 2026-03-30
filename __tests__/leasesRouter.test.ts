@@ -43,6 +43,9 @@ jest.mock("../src/db/savedTrips", () => ({
 jest.mock("../src/db/readings", () => ({
   getReadings: jest.fn(),
   createOdometerReading: jest.fn(),
+  getReading: jest.fn(),
+  getMaxOdometerExcluding: jest.fn(),
+  updateOdometerReading: jest.fn(),
 }));
 
 // Import after mocks are in place.
@@ -52,7 +55,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../s
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
 import { getReservedTripMiles } from "../src/db/savedTrips";
-import { getReadings, createOdometerReading } from "../src/db/readings";
+import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -69,6 +72,9 @@ const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
 const mockGetReadings = getReadings as jest.Mock;
 const mockCreateOdometerReading = createOdometerReading as jest.Mock;
+const mockGetReading = getReading as jest.Mock;
+const mockGetMaxOdometerExcluding = getMaxOdometerExcluding as jest.Mock;
+const mockUpdateOdometerReading = updateOdometerReading as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1552,6 +1558,385 @@ describe("POST /api/leases/:leaseId/readings", () => {
       .post(`/api/leases/${fakeLease.id}/readings`)
       .set("Authorization", "Bearer valid.token")
       .send(validReadingBody);
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/leases/:leaseId/readings/:readingId
+// ---------------------------------------------------------------------------
+
+describe("PUT /api/leases/:leaseId/readings/:readingId", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const readingId = "dddddddd-0000-0000-0000-000000000003";
+
+  const fakeExistingReading = {
+    id: readingId,
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    odometer: 12500,
+    reading_date: "2025-06-15",
+    notes: null,
+    source: "manual",
+    created_at: new Date("2025-06-15T00:00:00Z"),
+  };
+
+  const fakeUpdatedReading = {
+    ...fakeExistingReading,
+    odometer: 13000,
+    reading_date: "2025-07-01",
+    notes: "Updated note",
+  };
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has viewer role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when odometer is negative", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: -1 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when reading_date is not a valid date", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ reading_date: "not-a-date" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when getLease returns undefined after access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 when getReading returns undefined (reading not found)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/reading not found/i);
+  });
+
+  it("returns 400 when odometer is below starting_odometer", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 100,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 50 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/starting odometer/i);
+  });
+
+  it("returns 400 when odometer would go backward (below max of other readings)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 15000,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(14000);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/cannot go backward/i);
+  });
+
+  it("returns 200 with the updated reading on success (editor role)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(null);
+    mockUpdateOdometerReading.mockResolvedValueOnce(fakeUpdatedReading);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000, reading_date: "2025-07-01", notes: "Updated note" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(fakeUpdatedReading.id);
+    expect(res.body.odometer).toBe(fakeUpdatedReading.odometer);
+    expect(res.body.reading_date).toBe(fakeUpdatedReading.reading_date);
+    expect(res.body.notes).toBe(fakeUpdatedReading.notes);
+  });
+
+  it("returns 200 with the updated reading on success (owner role)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember); // owner
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(null);
+    mockUpdateOdometerReading.mockResolvedValueOnce(fakeUpdatedReading);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows editing only notes without triggering odometer validation", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockUpdateOdometerReading.mockResolvedValueOnce({
+      ...fakeExistingReading,
+      notes: "Just a note update",
+    });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ notes: "Just a note update" });
+
+    expect(res.status).toBe(200);
+    expect(mockGetMaxOdometerExcluding).not.toHaveBeenCalled();
+  });
+
+  it("allows setting notes to null to clear it", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce({ ...fakeExistingReading, notes: "old note" });
+    mockUpdateOdometerReading.mockResolvedValueOnce({
+      ...fakeExistingReading,
+      notes: null,
+    });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ notes: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.notes).toBeNull();
+  });
+
+  it("allows editing only reading_date without triggering odometer validation", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockUpdateOdometerReading.mockResolvedValueOnce({
+      ...fakeExistingReading,
+      reading_date: "2025-07-01",
+    });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ reading_date: "2025-07-01" });
+
+    expect(res.status).toBe(200);
+    expect(mockGetMaxOdometerExcluding).not.toHaveBeenCalled();
+  });
+
+  it("allows odometer equal to starting_odometer when no other readings exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 12500,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(null);
+    mockUpdateOdometerReading.mockResolvedValueOnce(fakeExistingReading);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500 });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows odometer equal to max of other readings", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 14000,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(13000);
+    mockUpdateOdometerReading.mockResolvedValueOnce({
+      ...fakeExistingReading,
+      odometer: 13000,
+    });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("calls updateOdometerReading with correct leaseId, readingId, and body", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(null);
+    mockUpdateOdometerReading.mockResolvedValueOnce(fakeUpdatedReading);
+
+    await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000, notes: "Test" });
+
+    expect(mockUpdateOdometerReading).toHaveBeenCalledWith(
+      fakeLease.id,
+      readingId,
+      expect.objectContaining({ odometer: 13000, notes: "Test" })
+    );
+  });
+
+  it("returns 500 when updateOdometerReading throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 12500,
+    });
+    mockGetReading.mockResolvedValueOnce(fakeExistingReading);
+    mockGetMaxOdometerExcluding.mockResolvedValueOnce(null);
+    mockUpdateOdometerReading.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 13000 });
 
     expect(res.status).toBe(500);
   });

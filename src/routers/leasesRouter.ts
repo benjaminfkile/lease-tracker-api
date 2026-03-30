@@ -9,9 +9,11 @@ import {
   UpdateLeaseInput,
   CreateOdometerReadingSchema,
   CreateOdometerReadingInput,
+  UpdateOdometerReadingSchema,
+  UpdateOdometerReadingInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
-import { getReadings, createOdometerReading } from "../db/readings";
+import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { getReservedTripMiles } from "../db/savedTrips";
@@ -249,7 +251,64 @@ leasesRouter.post(
 );
 
 /**
- * DELETE /api/leases/:leaseId
+ * PUT /api/leases/:leaseId/readings/:readingId
+ * Updates an existing odometer reading.
+ * Notes and reading_date may be edited freely.
+ * When odometer is updated it must still pass:
+ *   - the minimum validation (>= lease's starting_odometer)
+ *   - the ordering validation (>= the highest odometer among all other readings)
+ * After updating, the lease's current_odometer cache is recomputed with MAX(odometer).
+ * Requires at least 'editor' role.
+ */
+leasesRouter.put(
+  "/:leaseId/readings/:readingId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(UpdateOdometerReadingSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, readingId } = req.params;
+      const data = req.body as UpdateOdometerReadingInput;
+
+      const lease = await getLease(leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+
+      const existing = await getReading(leaseId, readingId);
+      if (!existing) {
+        next(new ApiError(404, "Reading not found"));
+        return;
+      }
+
+      if (data.odometer !== undefined) {
+        if (data.odometer < lease.starting_odometer) {
+          next(
+            new ApiError(
+              400,
+              "odometer must be greater than or equal to the lease starting odometer"
+            )
+          );
+          return;
+        }
+
+        const maxOther = await getMaxOdometerExcluding(leaseId, readingId);
+        if (maxOther !== null && data.odometer < maxOther) {
+          next(new ApiError(400, "odometer reading cannot go backward"));
+          return;
+        }
+      }
+
+      const updated = await updateOdometerReading(leaseId, readingId, data);
+      res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
  * Soft-deletes a lease by setting is_active = false. Only the lease owner
  * may delete. Preserves history — no data is permanently removed.
  */
