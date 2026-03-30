@@ -4,7 +4,8 @@ import { getDb } from "./db";
 export interface UpsertSubscriptionData {
   platform: string;
   product_id: string;
-  transaction_id: string;
+  transaction_id?: string | null;
+  purchase_token?: string | null;
   is_active: boolean;
   expires_at: Date;
   environment: string;
@@ -32,7 +33,8 @@ export async function upsertSubscription(
       .where({ id: existing.id })
       .update({
         product_id: data.product_id,
-        transaction_id: data.transaction_id,
+        transaction_id: data.transaction_id ?? null,
+        purchase_token: data.purchase_token ?? null,
         is_active: data.is_active,
         expires_at: data.expires_at,
         environment: data.environment,

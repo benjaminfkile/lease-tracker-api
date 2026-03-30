@@ -442,7 +442,6 @@ describe("VerifyGoogleReceiptSchema", () => {
   const valid = {
     purchase_token: "some.long.purchase.token",
     product_id: "com.example.premium_monthly",
-    package_name: "com.example.app",
   };
 
   it("accepts valid input", () => {
@@ -458,18 +457,6 @@ describe("VerifyGoogleReceiptSchema", () => {
     expectInvalid(VerifyGoogleReceiptSchema, {
       ...valid,
       purchase_token: "",
-    });
-  });
-
-  it("rejects missing package_name", () => {
-    const { package_name, ...rest } = valid;
-    expectInvalid(VerifyGoogleReceiptSchema, rest);
-  });
-
-  it("rejects empty package_name", () => {
-    expectInvalid(VerifyGoogleReceiptSchema, {
-      ...valid,
-      package_name: "",
     });
   });
 });

@@ -136,7 +136,6 @@ export const VerifyAppleReceiptSchema = z.object({
 export const VerifyGoogleReceiptSchema = z.object({
   purchase_token: z.string().min(1),
   product_id: z.string().min(1).max(200),
-  package_name: z.string().min(1),
 });
 
 // ---------------------------------------------------------------------------
