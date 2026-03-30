@@ -6,6 +6,7 @@ import { up as alertsUp, down as alertsDown } from "../src/db/migrations/2026032
 import { up as subsUp, down as subsDown } from "../src/db/migrations/20260329000006_create_subscriptions";
 import { up as membersUp, down as membersDown } from "../src/db/migrations/20260329000007_create_lease_members";
 import { up as triggersUp, down as triggersDown } from "../src/db/migrations/20260329000008_add_updated_at_triggers";
+import { up as origTxnUp, down as origTxnDown } from "../src/db/migrations/20260330000009_add_original_transaction_id_to_subscriptions";
 import { seed as devSeed } from "../src/db/seeds/20260329000001_dev_seed";
 
 describe("migration exports", () => {
@@ -47,6 +48,11 @@ describe("migration exports", () => {
   it("updated_at triggers migration exports up and down functions", () => {
     expect(typeof triggersUp).toBe("function");
     expect(typeof triggersDown).toBe("function");
+  });
+
+  it("add_original_transaction_id migration exports up and down functions", () => {
+    expect(typeof origTxnUp).toBe("function");
+    expect(typeof origTxnDown).toBe("function");
   });
 });
 

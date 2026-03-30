@@ -8,6 +8,7 @@ interface AppleLatestReceiptInfo {
   expires_date_ms: string;
   product_id: string;
   transaction_id: string;
+  original_transaction_id?: string;
   [key: string]: unknown;
 }
 
@@ -23,6 +24,7 @@ export interface AppleReceiptResult {
   expires_at: Date;
   product_id: string;
   transaction_id: string;
+  original_transaction_id: string | undefined;
   environment: "production" | "sandbox";
   raw_receipt: string;
 }
@@ -105,6 +107,7 @@ export async function verifyAppleReceipt(
     expires_at: expiresAt,
     product_id: latest.product_id,
     transaction_id: latest.transaction_id,
+    original_transaction_id: latest.original_transaction_id,
     environment,
     raw_receipt: appleResponse.latest_receipt ?? receiptData,
   };
