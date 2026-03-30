@@ -1,5 +1,5 @@
 import { ILease, ILeaseWithRole, ILeaseWithMembers, ILeaseMember } from "../interfaces";
-import { CreateLeaseInput } from "../validation/schemas";
+import { CreateLeaseInput, UpdateLeaseInput } from "../validation/schemas";
 import { getDb } from "./db";
 
 /**
@@ -48,6 +48,22 @@ export async function getLease(
   });
 
   return { ...lease, members };
+}
+
+/**
+ * Updates the specified fields of an existing lease row and returns the
+ * updated record. Returns undefined when no lease with the given id exists.
+ */
+export async function updateLease(
+  leaseId: string,
+  data: UpdateLeaseInput
+): Promise<ILease | undefined> {
+  const [lease] = await getDb()<ILease>("leases")
+    .where({ id: leaseId })
+    .update({ ...data, updated_at: getDb().fn.now() } as unknown as Partial<ILease>)
+    .returning("*");
+
+  return lease;
 }
 
 /**
