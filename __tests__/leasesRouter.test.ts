@@ -4362,3 +4362,255 @@ describe("DELETE /api/leases/:leaseId/members/:userId", () => {
     expect(res.status).toBe(500);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/buyback-analysis
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/buyback-analysis", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the user is not a member of the lease", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when dealer_buyback_rate is missing", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dealer_buyback_rate is not a number", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=abc`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dealer_buyback_rate is zero", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when dealer_buyback_rate is negative", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=-0.10`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when getLease returns undefined", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 200 with correct fields on success", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("projected_overage_miles");
+    expect(res.body).toHaveProperty("cost_if_paying_at_turnin");
+    expect(res.body).toHaveProperty("cost_if_buying_now");
+    expect(res.body).toHaveProperty("recommendation");
+    expect(res.body).toHaveProperty("savings");
+  });
+
+  it("returns on_track recommendation when projected_overage is 0", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    // fakeLeaseWithMembers has current_odometer: null → miles_driven = 0 → no overage
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.recommendation).toBe("on_track");
+    expect(res.body.projected_overage_miles).toBe(0);
+  });
+
+  it("returns buy_now when dealer_buyback_rate is less than overage_cost_per_mile and overage > 0", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    // High current_odometer to guarantee projected overage
+    const overageLease: ILeaseWithMembers = {
+      ...fakeLeaseWithMembers,
+      current_odometer: 30000,
+      total_miles_allowed: 10000,
+      overage_cost_per_mile: "0.25",
+    };
+    mockGetLease.mockResolvedValueOnce(overageLease);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    // dealer_buyback_rate 0.10 < overage_cost_per_mile 0.25 → buy_now
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.10`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.recommendation).toBe("buy_now");
+  });
+
+  it("returns pay_at_end when dealer_buyback_rate is greater than overage_cost_per_mile and overage > 0", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    // High current_odometer to guarantee projected overage
+    const overageLease: ILeaseWithMembers = {
+      ...fakeLeaseWithMembers,
+      current_odometer: 30000,
+      total_miles_allowed: 10000,
+      overage_cost_per_mile: "0.25",
+    };
+    mockGetLease.mockResolvedValueOnce(overageLease);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    // dealer_buyback_rate 0.40 > overage_cost_per_mile 0.25 → pay_at_end
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.40`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.recommendation).toBe("pay_at_end");
+  });
+
+  it("allows viewer role to access buyback-analysis", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 500 when getLease throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when getReservedTripMiles throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+
+  it("calls getLease with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetLease).toHaveBeenCalledWith(fakeLease.id);
+  });
+
+  it("calls getReservedTripMiles with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/buyback-analysis?dealer_buyback_rate=0.15`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReservedTripMiles).toHaveBeenCalledWith(fakeLease.id);
+  });
+});

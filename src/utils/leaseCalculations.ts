@@ -1,4 +1,4 @@
-import { ILease, ILeaseSummary } from "../interfaces";
+import { IBuybackAnalysis, ILease, ILeaseSummary } from "../interfaces";
 
 /**
  * Returns the number of whole days between two ISO date strings (YYYY-MM-DD).
@@ -93,5 +93,40 @@ export function computeLeaseSummary(
     recommended_daily_miles,
     reserved_trip_miles: reservedTripMiles,
     is_premium,
+  };
+}
+
+/**
+ * Computes a buyback analysis comparing the cost of paying overage miles at
+ * lease turn-in versus purchasing those miles now at the dealer's buyback rate.
+ *
+ * All arithmetic is pure — no database calls are made here.
+ */
+export function computeBuybackAnalysis(
+  projectedOverage: number,
+  overageCostPerMile: number,
+  dealerBuybackRate: number
+): IBuybackAnalysis {
+  const projected_overage_miles = projectedOverage;
+  const cost_if_paying_at_turnin = projected_overage_miles * overageCostPerMile;
+  const cost_if_buying_now = projected_overage_miles * dealerBuybackRate;
+
+  let recommendation: "buy_now" | "pay_at_end" | "on_track";
+  if (projected_overage_miles <= 0) {
+    recommendation = "on_track";
+  } else if (cost_if_buying_now < cost_if_paying_at_turnin) {
+    recommendation = "buy_now";
+  } else {
+    recommendation = "pay_at_end";
+  }
+
+  const savings = cost_if_paying_at_turnin - cost_if_buying_now;
+
+  return {
+    projected_overage_miles,
+    cost_if_paying_at_turnin,
+    cost_if_buying_now,
+    recommendation,
+    savings,
   };
 }

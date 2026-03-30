@@ -153,6 +153,14 @@ export const UpdateMemberRoleSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Analytics schemas
+// ---------------------------------------------------------------------------
+
+export const BuybackAnalysisQuerySchema = z.object({
+  dealer_buyback_rate: z.coerce.number().positive(),
+});
+
+// ---------------------------------------------------------------------------
 // User schemas
 // ---------------------------------------------------------------------------
 
@@ -188,3 +196,4 @@ export type VerifyAppleReceiptInput = z.infer<typeof VerifyAppleReceiptSchema>;
 export type VerifyGoogleReceiptInput = z.infer<typeof VerifyGoogleReceiptSchema>;
 export type InviteMemberInput = z.infer<typeof InviteMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof UpdateMemberRoleSchema>;
+export type BuybackAnalysisQueryInput = z.infer<typeof BuybackAnalysisQuerySchema>;

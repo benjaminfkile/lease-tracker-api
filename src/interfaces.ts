@@ -170,3 +170,11 @@ export interface ILeaseSummary {
   reserved_trip_miles: number;
   is_premium: boolean;
 }
+
+export interface IBuybackAnalysis {
+  projected_overage_miles: number;
+  cost_if_paying_at_turnin: number;
+  cost_if_buying_now: number;
+  recommendation: "buy_now" | "pay_at_end" | "on_track";
+  savings: number;
+}

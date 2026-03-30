@@ -23,6 +23,7 @@ import {
   InviteMemberInput,
   UpdateMemberRoleSchema,
   UpdateMemberRoleInput,
+  BuybackAnalysisQuerySchema,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
@@ -30,7 +31,7 @@ import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, accept
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
-import { computeLeaseSummary } from "../utils/leaseCalculations";
+import { computeLeaseSummary, computeBuybackAnalysis } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 import { sendPushNotification } from "../services/pushNotifications";
 
@@ -748,6 +749,58 @@ leasesRouter.delete(
         return;
       }
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/buyback-analysis
+ * Returns a buyback analysis comparing the cost of paying overage miles at
+ * turn-in versus purchasing those miles now at the dealer's buyback rate.
+ * Query params:
+ *   ?dealer_buyback_rate=<number>  – per-mile buyback price offered by dealer
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/buyback-analysis",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const queryResult = BuybackAnalysisQuerySchema.safeParse(req.query);
+      if (!queryResult.success) {
+        next(
+          new ApiError(
+            400,
+            queryResult.error.issues.map((i) => i.message).join("; ")
+          )
+        );
+        return;
+      }
+      const { dealer_buyback_rate } = queryResult.data;
+
+      const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+
+      const reservedTripMiles = await getReservedTripMiles(req.params.leaseId);
+      const summary = computeLeaseSummary(
+        lease,
+        reservedTripMiles,
+        req.dbUser!.subscription_tier
+      );
+
+      const analysis = computeBuybackAnalysis(
+        summary.projected_overage,
+        parseFloat(lease.overage_cost_per_mile),
+        dealer_buyback_rate
+      );
+
+      res.status(200).json(analysis);
     } catch (err) {
       next(err);
     }
