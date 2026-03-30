@@ -1,4 +1,4 @@
-import { ILease, ILeaseWithRole } from "../interfaces";
+import { ILease, ILeaseWithRole, ILeaseWithMembers, ILeaseMember } from "../interfaces";
 import { CreateLeaseInput } from "../validation/schemas";
 import { getDb } from "./db";
 
@@ -29,6 +29,25 @@ export async function createLease(
     .returning("*");
 
   return lease;
+}
+
+/**
+ * Returns a single active lease by id together with its full member list.
+ * Returns undefined when no lease with the given id exists.
+ */
+export async function getLease(
+  leaseId: string
+): Promise<ILeaseWithMembers | undefined> {
+  const db = getDb();
+  const lease = await db<ILease>("leases").where({ id: leaseId }).first();
+
+  if (!lease) return undefined;
+
+  const members = await db<ILeaseMember>("lease_members").where({
+    lease_id: leaseId,
+  });
+
+  return { ...lease, members };
 }
 
 /**

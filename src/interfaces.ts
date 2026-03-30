@@ -88,6 +88,10 @@ export interface ILeaseWithRole extends ILease {
   role: TLeaseRole;
 }
 
+export interface ILeaseWithMembers extends ILease {
+  members: ILeaseMember[];
+}
+
 export interface IAlertConfig {
   id: string;
   lease_id: string;
