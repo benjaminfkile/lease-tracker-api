@@ -111,6 +111,41 @@ export async function getMaxOdometerExcluding(
 }
 
 /**
+ * Deletes an odometer reading and recomputes the lease's current_odometer
+ * cache using MAX(odometer) from remaining readings, falling back to the
+ * lease's starting_odometer when no readings remain.
+ *
+ * @param leaseId   - UUID of the lease
+ * @param readingId - UUID of the reading to delete
+ */
+export async function deleteOdometerReading(
+  leaseId: string,
+  readingId: string
+): Promise<IOdometerReading | undefined> {
+  const db = getDb();
+
+  const [reading] = await db<IOdometerReading>("odometer_readings")
+    .where({ id: readingId, lease_id: leaseId })
+    .delete()
+    .returning("*");
+
+  if (!reading) return undefined;
+
+  // Recompute current_odometer: MAX from remaining readings or starting_odometer.
+  await db("leases")
+    .where({ id: leaseId })
+    .update({
+      current_odometer: db.raw(
+        "COALESCE((SELECT MAX(odometer) FROM odometer_readings WHERE lease_id = ?), starting_odometer)",
+        [leaseId]
+      ),
+      updated_at: db.fn.now(),
+    });
+
+  return reading;
+}
+
+/**
  * Updates an odometer reading and recomputes the lease's current_odometer
  * cache using MAX(odometer) across all readings for the lease.
  *

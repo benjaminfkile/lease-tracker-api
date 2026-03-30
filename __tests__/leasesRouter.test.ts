@@ -46,6 +46,7 @@ jest.mock("../src/db/readings", () => ({
   getReading: jest.fn(),
   getMaxOdometerExcluding: jest.fn(),
   updateOdometerReading: jest.fn(),
+  deleteOdometerReading: jest.fn(),
 }));
 
 // Import after mocks are in place.
@@ -55,7 +56,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../s
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
 import { getReservedTripMiles } from "../src/db/savedTrips";
-import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading } from "../src/db/readings";
+import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -75,6 +76,7 @@ const mockCreateOdometerReading = createOdometerReading as jest.Mock;
 const mockGetReading = getReading as jest.Mock;
 const mockGetMaxOdometerExcluding = getMaxOdometerExcluding as jest.Mock;
 const mockUpdateOdometerReading = updateOdometerReading as jest.Mock;
+const mockDeleteOdometerReading = deleteOdometerReading as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1937,6 +1939,141 @@ describe("PUT /api/leases/:leaseId/readings/:readingId", () => {
       .put(`/api/leases/${fakeLease.id}/readings/${readingId}`)
       .set("Authorization", "Bearer valid.token")
       .send({ odometer: 13000 });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("DELETE /api/leases/:leaseId/readings/:readingId", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const readingId = "eeeeeeee-0000-0000-0000-000000000004";
+
+  const fakeDeletedReading = {
+    id: readingId,
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    odometer: 12500,
+    reading_date: "2025-06-15",
+    notes: null,
+    source: "manual",
+    created_at: new Date("2025-06-15T00:00:00Z"),
+  };
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).delete(
+      `/api/leases/${fakeLease.id}/readings/${readingId}`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has viewer role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 when the reading does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockDeleteOdometerReading.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/reading not found/i);
+  });
+
+  it("returns 204 on success with editor role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockDeleteOdometerReading.mockResolvedValueOnce(fakeDeletedReading);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({});
+  });
+
+  it("returns 204 on success with owner role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember); // owner
+    mockDeleteOdometerReading.mockResolvedValueOnce(fakeDeletedReading);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(204);
+  });
+
+  it("calls deleteOdometerReading with correct leaseId and readingId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockDeleteOdometerReading.mockResolvedValueOnce(fakeDeletedReading);
+
+    await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockDeleteOdometerReading).toHaveBeenCalledWith(
+      fakeLease.id,
+      readingId
+    );
+  });
+
+  it("returns 500 when deleteOdometerReading throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockDeleteOdometerReading.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}/readings/${readingId}`)
+      .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(500);
   });

@@ -13,7 +13,7 @@ import {
   UpdateOdometerReadingInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
-import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading } from "../db/readings";
+import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { getReservedTripMiles } from "../db/savedTrips";
@@ -302,6 +302,31 @@ leasesRouter.put(
 
       const updated = await updateOdometerReading(leaseId, readingId, data);
       res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/leases/:leaseId/readings/:readingId
+ * Deletes an odometer reading and recomputes the lease's current_odometer cache
+ * using MAX(odometer) from remaining readings, or starting_odometer if none remain.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.delete(
+  "/:leaseId/readings/:readingId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, readingId } = req.params;
+      const reading = await deleteOdometerReading(leaseId, readingId);
+      if (!reading) {
+        next(new ApiError(404, "Reading not found"));
+        return;
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }
