@@ -27,6 +27,7 @@ jest.mock("../src/services/googlePlayVerify", () => ({
 
 jest.mock("../src/db/subscriptions", () => ({
   upsertSubscription: jest.fn(),
+  getSubscriptionStatus: jest.fn(),
 }));
 
 // Import after mocks are in place.
@@ -34,7 +35,7 @@ import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { verifyAppleReceipt } from "../src/services/appleReceipt";
 import { verifyGooglePurchase } from "../src/services/googlePlayVerify";
-import { upsertSubscription } from "../src/db/subscriptions";
+import { upsertSubscription, getSubscriptionStatus } from "../src/db/subscriptions";
 import subscriptionsRouter from "../src/routers/subscriptionsRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -42,6 +43,7 @@ const mockUpsertUser = upsertUser as jest.Mock;
 const mockVerifyAppleReceipt = verifyAppleReceipt as jest.Mock;
 const mockVerifyGooglePurchase = verifyGooglePurchase as jest.Mock;
 const mockUpsertSubscription = upsertSubscription as jest.Mock;
+const mockGetSubscriptionStatus = getSubscriptionStatus as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -538,5 +540,154 @@ describe("POST /api/subscriptions/google/verify", () => {
     expect(res.status).toBe(200);
     expect(res.body.is_active).toBe(false);
     expect(res.body.expires_at).toBe("2020-01-01T00:00:00.000Z");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/subscriptions/status
+// ---------------------------------------------------------------------------
+
+describe("GET /api/subscriptions/status", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get("/api/subscriptions/status");
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 when token is invalid", async () => {
+    mockVerify.mockRejectedValueOnce(new Error("Invalid signature"));
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer bad.token");
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when token is expired", async () => {
+    const expiredError = Object.assign(new Error("Token is expired"), {
+      name: "JwtExpiredError",
+    });
+    mockVerify.mockRejectedValueOnce(expiredError);
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer expired.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 with is_active=false when user has no subscription", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetSubscriptionStatus.mockResolvedValueOnce({
+      is_active: false,
+      expires_at: null,
+      product_id: null,
+      platform: null,
+    });
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      is_active: false,
+      expires_at: null,
+      product_id: null,
+      platform: null,
+    });
+  });
+
+  it("returns 200 with active subscription status", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetSubscriptionStatus.mockResolvedValueOnce({
+      is_active: true,
+      expires_at: new Date("2027-01-01T00:00:00Z"),
+      product_id: "com.example.app.premium.monthly",
+      platform: "apple",
+    });
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      is_active: true,
+      expires_at: "2027-01-01T00:00:00.000Z",
+      product_id: "com.example.app.premium.monthly",
+      platform: "apple",
+    });
+  });
+
+  it("returns 200 with is_active=false when subscription is stale (expired but flag not updated)", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetSubscriptionStatus.mockResolvedValueOnce({
+      is_active: false,
+      expires_at: new Date("2020-01-01T00:00:00Z"),
+      product_id: "com.example.app.premium.monthly",
+      platform: "google",
+    });
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.is_active).toBe(false);
+    expect(res.body.expires_at).toBe("2020-01-01T00:00:00.000Z");
+    expect(res.body.platform).toBe("google");
+  });
+
+  it("calls getSubscriptionStatus with the authenticated user's id", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetSubscriptionStatus.mockResolvedValueOnce({
+      is_active: false,
+      expires_at: null,
+      product_id: null,
+      platform: null,
+    });
+
+    await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetSubscriptionStatus).toHaveBeenCalledWith(fakeUser.id);
+  });
+
+  it("returns 500 when getSubscriptionStatus throws", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetSubscriptionStatus.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get("/api/subscriptions/status")
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
   });
 });

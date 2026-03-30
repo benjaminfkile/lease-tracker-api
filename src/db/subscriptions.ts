@@ -1,6 +1,13 @@
 import { ISubscription } from "../interfaces";
 import { getDb } from "./db";
 
+export interface SubscriptionStatus {
+  is_active: boolean;
+  expires_at: Date | null;
+  product_id: string | null;
+  platform: string | null;
+}
+
 export interface UpsertSubscriptionData {
   platform: string;
   product_id: string;
@@ -54,4 +61,44 @@ export async function upsertSubscription(
   });
 
   return subscription;
+}
+
+/**
+ * Returns the most recent subscription for the user, re-checking expiry
+ * against the database's NOW() so stale is_active flags are not trusted.
+ * Returns a status object with is_active=false when no subscription exists.
+ */
+export async function getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
+  const db = getDb();
+
+  type StatusRow = {
+    product_id: string;
+    platform: string;
+    is_active: boolean;
+    expires_at: Date | null;
+    effective_is_active: boolean;
+  };
+
+  const row = await db("subscriptions")
+    .where({ user_id: userId })
+    .select<StatusRow[]>([
+      "product_id",
+      "platform",
+      "is_active",
+      "expires_at",
+      db.raw("is_active AND (expires_at IS NULL OR expires_at > NOW()) AS effective_is_active"),
+    ])
+    .orderBy("updated_at", "desc")
+    .first<StatusRow | undefined>();
+
+  if (!row) {
+    return { is_active: false, expires_at: null, product_id: null, platform: null };
+  }
+
+  return {
+    is_active: row.effective_is_active,
+    expires_at: row.expires_at,
+    product_id: row.product_id,
+    platform: row.platform,
+  };
 }

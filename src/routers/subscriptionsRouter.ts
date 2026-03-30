@@ -9,10 +9,28 @@ import {
 } from "../validation/schemas";
 import { verifyAppleReceipt } from "../services/appleReceipt";
 import { verifyGooglePurchase } from "../services/googlePlayVerify";
-import { upsertSubscription } from "../db/subscriptions";
+import { upsertSubscription, getSubscriptionStatus } from "../db/subscriptions";
 import { ApiError } from "../utils/ApiError";
 
 const subscriptionsRouter = express.Router();
+
+/**
+ * GET /api/subscriptions/status
+ * Returns current subscription status for the authenticated user.
+ * Re-checks expiry against NOW() so stale is_active flags are not trusted.
+ */
+subscriptionsRouter.get(
+  "/status",
+  authAndLoad,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const status = await getSubscriptionStatus(req.dbUser!.id);
+      res.status(200).json(status);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * POST /api/subscriptions/apple/verify
