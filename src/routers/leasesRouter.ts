@@ -6,6 +6,8 @@ import { CreateLeaseSchema, CreateLeaseInput, UpdateLeaseSchema, UpdateLeaseInpu
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
+import { getReservedTripMiles } from "../db/savedTrips";
+import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
 const leasesRouter = express.Router();
@@ -91,6 +93,35 @@ leasesRouter.put(
         return;
       }
       res.status(200).json(lease);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/summary
+ * Returns computed analytics for the lease: mileage, pace, projections, and
+ * trip-reservation totals. Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/summary",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+      const reservedTripMiles = await getReservedTripMiles(req.params.leaseId);
+      const summary = computeLeaseSummary(
+        lease,
+        reservedTripMiles,
+        req.dbUser!.subscription_tier
+      );
+      res.status(200).json(summary);
     } catch (err) {
       next(err);
     }
