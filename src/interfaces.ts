@@ -178,3 +178,10 @@ export interface IBuybackAnalysis {
   recommendation: "buy_now" | "pay_at_end" | "on_track";
   savings: number;
 }
+
+export interface ILeaseEndOptions {
+  return_cost: number;
+  buyout_cost: number;
+  roll_cost: number;
+  recommendation: "return" | "buyout" | "roll";
+}

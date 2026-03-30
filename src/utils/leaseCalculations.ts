@@ -1,4 +1,4 @@
-import { IBuybackAnalysis, ILease, ILeaseSummary } from "../interfaces";
+import { IBuybackAnalysis, ILease, ILeaseEndOptions, ILeaseSummary } from "../interfaces";
 
 /**
  * Returns the number of whole days between two ISO date strings (YYYY-MM-DD).
@@ -129,4 +129,39 @@ export function computeBuybackAnalysis(
     recommendation,
     savings,
   };
+}
+
+/**
+ * Computes modeled costs for three lease-end scenarios:
+ *   - return:  pay overage miles at the lease's per-mile rate
+ *   - buyout:  purchase the vehicle at the user-supplied residual value
+ *   - roll:    enter a new lease for the remaining months at a hypothetical payment
+ *
+ * Returns all three costs and a recommendation (scenario with the lowest cost).
+ * All arithmetic is pure — no database calls are made here.
+ */
+export function computeLeaseEndOptions(
+  projectedOverage: number,
+  overageCostPerMile: number,
+  residualValue: number,
+  daysRemaining: number,
+  newMonthlyPayment: number
+): ILeaseEndOptions {
+  const DAYS_PER_MONTH = 30.44;
+
+  const return_cost = projectedOverage * overageCostPerMile;
+  const buyout_cost = residualValue;
+  const remainingMonths = daysRemaining / DAYS_PER_MONTH;
+  const roll_cost = remainingMonths * newMonthlyPayment;
+
+  let recommendation: "return" | "buyout" | "roll";
+  if (return_cost <= buyout_cost && return_cost <= roll_cost) {
+    recommendation = "return";
+  } else if (buyout_cost <= roll_cost) {
+    recommendation = "buyout";
+  } else {
+    recommendation = "roll";
+  }
+
+  return { return_cost, buyout_cost, roll_cost, recommendation };
 }

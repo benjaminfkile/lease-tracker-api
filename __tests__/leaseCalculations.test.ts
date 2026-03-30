@@ -1,4 +1,4 @@
-import { computeBuybackAnalysis, computeLeaseSummary, daysBetween } from "../src/utils/leaseCalculations";
+import { computeBuybackAnalysis, computeLeaseEndOptions, computeLeaseSummary, daysBetween } from "../src/utils/leaseCalculations";
 import { ILease } from "../src/interfaces";
 
 // ---------------------------------------------------------------------------
@@ -284,5 +284,69 @@ describe("computeBuybackAnalysis", () => {
   it("reflects projected_overage_miles in the output", () => {
     const result = computeBuybackAnalysis(500, 0.25, 0.15);
     expect(result.projected_overage_miles).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLeaseEndOptions
+// ---------------------------------------------------------------------------
+
+describe("computeLeaseEndOptions", () => {
+  // Helper values
+  // return_cost   = 1000 * 0.25 = 250
+  // buyout_cost   = 15000
+  // roll_cost     = (304.4 / 30.44) * 500 = 10 * 500 = 5000
+  const DAYS_REMAINING = 304.4; // exactly 10 months
+  const NEW_MONTHLY = 500;
+
+  it("calculates return_cost as projected_overage * overage_cost_per_mile", () => {
+    const result = computeLeaseEndOptions(1000, 0.25, 15000, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.return_cost).toBeCloseTo(250, 2);
+  });
+
+  it("calculates buyout_cost as the supplied residual_value", () => {
+    const result = computeLeaseEndOptions(1000, 0.25, 15000, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.buyout_cost).toBe(15000);
+  });
+
+  it("calculates roll_cost as (days_remaining / 30.44) * new_monthly_payment", () => {
+    const result = computeLeaseEndOptions(1000, 0.25, 15000, DAYS_REMAINING, NEW_MONTHLY);
+    const expectedRollCost = (DAYS_REMAINING / 30.44) * NEW_MONTHLY;
+    expect(result.roll_cost).toBeCloseTo(expectedRollCost, 2);
+  });
+
+  it("recommends 'return' when return_cost is the lowest", () => {
+    // return=250, buyout=15000, roll=5000
+    const result = computeLeaseEndOptions(1000, 0.25, 15000, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.recommendation).toBe("return");
+  });
+
+  it("recommends 'buyout' when buyout_cost is lowest", () => {
+    // return=2500, buyout=100, roll=5000
+    const result = computeLeaseEndOptions(10000, 0.25, 100, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.recommendation).toBe("buyout");
+  });
+
+  it("recommends 'roll' when roll_cost is lowest", () => {
+    // return=25000, buyout=20000, roll=500 (1 day remaining)
+    const result = computeLeaseEndOptions(100000, 0.25, 20000, DAYS_REMAINING, 50);
+    // roll_cost = (304.4 / 30.44) * 50 ≈ 500, buyout=20000, return=25000
+    expect(result.recommendation).toBe("roll");
+  });
+
+  it("returns 'return' when return_cost equals buyout_cost and both are lowest", () => {
+    // return=0, buyout=0, roll=500 → return wins (equals buyout, but return checked first)
+    const result = computeLeaseEndOptions(0, 0.25, 0, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.recommendation).toBe("return");
+  });
+
+  it("returns zero return_cost when projected_overage is 0", () => {
+    const result = computeLeaseEndOptions(0, 0.25, 15000, DAYS_REMAINING, NEW_MONTHLY);
+    expect(result.return_cost).toBe(0);
+  });
+
+  it("returns zero roll_cost when days_remaining is 0", () => {
+    const result = computeLeaseEndOptions(1000, 0.25, 15000, 0, NEW_MONTHLY);
+    expect(result.roll_cost).toBe(0);
   });
 });
