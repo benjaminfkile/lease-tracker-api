@@ -14,6 +14,7 @@ import {
   upsertSubscription,
   getSubscriptionStatus,
   handleAppleNotification,
+  handleGoogleNotification,
 } from "../db/subscriptions";
 import { ApiError } from "../utils/ApiError";
 
@@ -145,6 +146,76 @@ subscriptionsRouter.post(
       }
     } catch (err) {
       console.error("[apple/webhook] error processing notification:", err);
+    }
+
+    res.status(200).json({ received: true });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Google Pub/Sub push message types
+// ---------------------------------------------------------------------------
+
+interface GoogleSubscriptionNotification {
+  version: string;
+  notificationType: number;
+  purchaseToken: string;
+  subscriptionId: string;
+}
+
+interface GoogleDeveloperNotification {
+  version: string;
+  packageName: string;
+  eventTimeMillis: string;
+  subscriptionNotification?: GoogleSubscriptionNotification;
+}
+
+/**
+ * POST /api/subscriptions/google/webhook
+ * Receives Pub/Sub push notifications from Google Play billing for events
+ * such as renewals, cancellations, and expirations.
+ *
+ * The Pub/Sub message `data` field is base64-decoded to obtain the
+ * DeveloperNotification.  For `subscriptionNotification` events the purchase
+ * token is re-verified against the Google Play Developer API and the
+ * subscription record and user tier are updated accordingly.
+ *
+ * Always returns 200 — Google retries on any non-2xx response.
+ */
+subscriptionsRouter.post(
+  "/google/webhook",
+  async (req: Request, res: Response) => {
+    try {
+      const body = req.body as { message?: { data?: unknown } };
+      const rawData = body.message?.data;
+
+      if (rawData && typeof rawData === "string") {
+        let notification: GoogleDeveloperNotification;
+        try {
+          notification = JSON.parse(
+            Buffer.from(rawData, "base64").toString("utf8")
+          ) as GoogleDeveloperNotification;
+        } catch {
+          // Malformed base64/JSON payload — nothing actionable
+          res.status(200).json({ received: true });
+          return;
+        }
+
+        const sn = notification.subscriptionNotification;
+        if (sn?.purchaseToken && sn.subscriptionId) {
+          const packageName = process.env.GOOGLE_PLAY_PACKAGE_NAME;
+          if (packageName) {
+            const verifyResult = await verifyGooglePurchase(
+              packageName,
+              sn.subscriptionId,
+              sn.purchaseToken
+            );
+            await handleGoogleNotification(sn.purchaseToken, verifyResult);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[google/webhook] error processing notification:", err);
     }
 
     res.status(200).json({ received: true });

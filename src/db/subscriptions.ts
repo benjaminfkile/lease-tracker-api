@@ -1,6 +1,7 @@
 import { ISubscription } from "../interfaces";
 import { getDb } from "./db";
 import { DecodedAppleNotification } from "../services/appleWebhook";
+import { GooglePlayVerifyResult } from "../services/googlePlayVerify";
 
 export interface SubscriptionStatus {
   is_active: boolean;
@@ -178,6 +179,62 @@ export async function handleAppleNotification(
       .update({
         subscription_tier: "premium",
         ...(expiresAt !== null && { subscription_expires_at: expiresAt }),
+      });
+  } else {
+    // Downgrade to free only if no other active subscription exists
+    const otherActive = await db("subscriptions")
+      .where({ user_id: subscription.user_id, is_active: true })
+      .whereNot({ id: subscription.id })
+      .count<{ count: string }>("id as count")
+      .first();
+
+    if (!otherActive || Number(otherActive.count) === 0) {
+      await db("users").where({ id: subscription.user_id }).update({
+        subscription_tier: "free",
+      });
+    }
+  }
+}
+
+/**
+ * Processes a Google Play real-time developer notification and updates the
+ * matching subscription record and the user's subscription tier.
+ *
+ * Looks up the subscription by `purchase_token`.  If no matching record is
+ * found the notification is silently ignored (Google may notify about
+ * purchases created before this server recorded them).
+ */
+export async function handleGoogleNotification(
+  purchaseToken: string,
+  verifyResult: GooglePlayVerifyResult
+): Promise<void> {
+  const db = getDb();
+
+  const subscription = await db<ISubscription>("subscriptions")
+    .where({ purchase_token: purchaseToken, platform: "google" })
+    .first();
+
+  if (!subscription) {
+    return;
+  }
+
+  // Update subscription record with the latest verified state
+  await db("subscriptions")
+    .where({ id: subscription.id })
+    .update({
+      is_active: verifyResult.is_active,
+      product_id: verifyResult.product_id,
+      expires_at: verifyResult.expires_at,
+      raw_receipt: verifyResult.raw_receipt,
+    });
+
+  // Keep users table in sync
+  if (verifyResult.is_active) {
+    await db("users")
+      .where({ id: subscription.user_id })
+      .update({
+        subscription_tier: "premium",
+        subscription_expires_at: verifyResult.expires_at,
       });
   } else {
     // Downgrade to free only if no other active subscription exists
