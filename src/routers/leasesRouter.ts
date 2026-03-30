@@ -23,7 +23,7 @@ import {
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
-import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig } from "../db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
@@ -221,6 +221,29 @@ leasesRouter.put(
 
       const updated = await updateAlertConfig(leaseId, alertId, data);
       res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/leases/:leaseId/alerts/:alertId
+ * Deletes an alert config for the lease. Requires at least 'editor' role.
+ */
+leasesRouter.delete(
+  "/:leaseId/alerts/:alertId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, alertId } = req.params;
+      const alert = await deleteAlertConfig(leaseId, alertId);
+      if (!alert) {
+        next(new ApiError(404, "Alert config not found"));
+        return;
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

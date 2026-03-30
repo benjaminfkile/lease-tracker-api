@@ -58,6 +58,21 @@ export async function createAlertConfig(
 }
 
 /**
+ * Deletes an alert config scoped to the given lease and returns the deleted row,
+ * or undefined if no matching record was found.
+ */
+export async function deleteAlertConfig(
+  leaseId: string,
+  alertId: string
+): Promise<IAlertConfig | undefined> {
+  const [row] = await getDb()<IAlertConfig>("alert_configs")
+    .where({ id: alertId, lease_id: leaseId })
+    .delete()
+    .returning("*");
+  return row;
+}
+
+/**
  * Creates the three default alert configs for a newly created lease:
  *   - miles_threshold: threshold_value = 80, meaning alert when 80% of
  *     total_miles_allowed is reached
