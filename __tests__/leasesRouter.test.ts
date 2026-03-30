@@ -16,6 +16,7 @@ jest.mock("../src/auth/cognitoVerifier", () => ({
 
 jest.mock("../src/db/users", () => ({
   upsertUser: jest.fn(),
+  getUserByEmail: jest.fn(),
 }));
 
 jest.mock("../src/db/leases", () => ({
@@ -60,18 +61,24 @@ jest.mock("../src/db/readings", () => ({
   deleteOdometerReading: jest.fn(),
 }));
 
+jest.mock("../src/services/pushNotifications", () => ({
+  sendPushNotification: jest.fn(),
+}));
+
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
-import { upsertUser } from "../src/db/users";
+import { upsertUser, getUserByEmail } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../src/db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
+import { sendPushNotification } from "../src/services/pushNotifications";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
 const mockUpsertUser = upsertUser as jest.Mock;
+const mockGetUserByEmail = getUserByEmail as jest.Mock;
 const mockGetLeases = getLeases as jest.Mock;
 const mockCreateLease = createLease as jest.Mock;
 const mockGetLease = getLease as jest.Mock;
@@ -99,6 +106,7 @@ const mockGetReading = getReading as jest.Mock;
 const mockGetMaxOdometerExcluding = getMaxOdometerExcluding as jest.Mock;
 const mockUpdateOdometerReading = updateOdometerReading as jest.Mock;
 const mockDeleteOdometerReading = deleteOdometerReading as jest.Mock;
+const mockSendPushNotification = sendPushNotification as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3590,6 +3598,252 @@ describe("GET /api/leases/:leaseId/members", () => {
     const res = await request(buildApp())
       .get(`/api/leases/${fakeLease.id}/members`)
       .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/leases/:leaseId/members
+// ---------------------------------------------------------------------------
+
+describe("POST /api/leases/:leaseId/members", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const inviteeUser: IUser = {
+    id: "dddddddd-0000-0000-0000-000000000004",
+    cognito_user_id: "us-east-1_TEST:sub-002",
+    email: "invitee@example.com",
+    display_name: "Invitee User",
+    subscription_tier: "free",
+    subscription_expires_at: null,
+    push_token: null,
+    created_at: new Date("2026-01-01T00:00:00Z"),
+    updated_at: new Date("2026-01-01T00:00:00Z"),
+  };
+
+  const inviteeMember: ILeaseMember = {
+    id: "eeeeeeee-0000-0000-0000-000000000005",
+    lease_id: fakeLease.id,
+    user_id: inviteeUser.id,
+    role: "viewer",
+    invited_by: fakeUser.id,
+    accepted_at: null,
+    created_at: new Date("2026-01-01T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when user is not the lease owner", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when email is missing from body", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when email is not valid", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: "not-an-email" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when role is invalid", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email, role: "owner" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when invitee email is not found in users table", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: "unknown@example.com" });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("User not found");
+  });
+
+  it("returns 409 when invitee is already a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser);
+    mockGetLeaseMember.mockResolvedValueOnce(inviteeMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("User is already a member of this lease");
+  });
+
+  it("returns 201 with the new member on success (viewer by default)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockResolvedValueOnce(inviteeMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(201);
+    expect(res.body.user_id).toBe(inviteeUser.id);
+    expect(res.body.role).toBe("viewer");
+    expect(res.body.invited_by).toBe(fakeUser.id);
+    expect(res.body.accepted_at).toBeNull();
+  });
+
+  it("returns 201 with editor role when specified", async () => {
+    const editorMember: ILeaseMember = { ...inviteeMember, role: "editor" };
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockResolvedValueOnce(editorMember);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email, role: "editor" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.role).toBe("editor");
+  });
+
+  it("calls createLeaseMember with correct args including invitedBy", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockResolvedValueOnce(inviteeMember);
+
+    await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(mockCreateLeaseMember).toHaveBeenCalledWith(
+      fakeLease.id,
+      inviteeUser.id,
+      "viewer",
+      fakeUser.id
+    );
+  });
+
+  it("does not call sendPushNotification when invitee has no push_token", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser); // push_token: null
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockResolvedValueOnce(inviteeMember);
+
+    await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(mockSendPushNotification).not.toHaveBeenCalled();
+  });
+
+  it("calls sendPushNotification when invitee has a push_token", async () => {
+    const inviteeWithToken: IUser = { ...inviteeUser, push_token: "ExponentPushToken[abc123]" };
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeWithToken);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockResolvedValueOnce(inviteeMember);
+    mockSendPushNotification.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(201);
+    expect(mockSendPushNotification).toHaveBeenCalledWith(
+      "ExponentPushToken[abc123]",
+      "Lease Invitation",
+      "You have been invited to access a lease."
+    );
+  });
+
+  it("returns 500 when createLeaseMember throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetUserByEmail.mockResolvedValueOnce(inviteeUser);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockCreateLeaseMember.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ email: inviteeUser.email });
 
     expect(res.status).toBe(500);
   });
