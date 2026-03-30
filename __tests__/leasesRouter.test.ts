@@ -32,6 +32,7 @@ jest.mock("../src/db/leaseMembers", () => ({
   getLeaseMember: jest.fn(),
   getLeaseMembers: jest.fn(),
   leaseExists: jest.fn(),
+  acceptLeaseMember: jest.fn(),
 }));
 
 jest.mock("../src/db/alertConfigs", () => ({
@@ -69,7 +70,7 @@ jest.mock("../src/services/pushNotifications", () => ({
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser, getUserByEmail } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
-import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists } from "../src/db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../src/db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
@@ -88,6 +89,7 @@ const mockCreateLeaseMember = createLeaseMember as jest.Mock;
 const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockGetLeaseMembers = getLeaseMembers as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
+const mockAcceptLeaseMember = acceptLeaseMember as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetAlertConfigs = getAlertConfigs as jest.Mock;
 const mockCreateAlertConfig = createAlertConfig as jest.Mock;
@@ -3844,6 +3846,118 @@ describe("POST /api/leases/:leaseId/members", () => {
       .post(`/api/leases/${fakeLease.id}/members`)
       .set("Authorization", "Bearer valid.token")
       .send({ email: inviteeUser.email });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("POST /api/leases/:leaseId/members/accept", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const pendingInvitation: ILeaseMember = {
+    id: "ffffffff-0000-0000-0000-000000000006",
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    role: "viewer",
+    invited_by: "aaaaaaaa-0000-0000-0000-000000000099",
+    accepted_at: null,
+    created_at: new Date("2026-01-01T00:00:00Z"),
+  };
+
+  const acceptedInvitation: ILeaseMember = {
+    ...pendingInvitation,
+    accepted_at: new Date("2026-03-30T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("Lease not found");
+  });
+
+  it("returns 404 when no invitation exists for the current user", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("Invitation not found");
+  });
+
+  it("returns 409 when invitation has already been accepted", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(acceptedInvitation);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("Invitation already accepted");
+  });
+
+  it("returns 200 with the updated member on success", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(pendingInvitation);
+    mockAcceptLeaseMember.mockResolvedValueOnce(acceptedInvitation);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.accepted_at).toBeTruthy();
+    expect(res.body.user_id).toBe(fakeUser.id);
+  });
+
+  it("calls acceptLeaseMember with correct leaseId and userId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(pendingInvitation);
+    mockAcceptLeaseMember.mockResolvedValueOnce(acceptedInvitation);
+
+    await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockAcceptLeaseMember).toHaveBeenCalledWith(fakeLease.id, fakeUser.id);
+  });
+
+  it("returns 500 when acceptLeaseMember throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(pendingInvitation);
+    mockAcceptLeaseMember.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/members/accept`)
+      .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(500);
   });
