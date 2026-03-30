@@ -55,3 +55,35 @@ export interface ILeaseMember {
   accepted_at: Date | null;
   created_at: Date;
 }
+
+export interface ILease {
+  id: string;
+  user_id: string;
+  display_name: string;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  trim: string | null;
+  color: string | null;
+  vin: string | null;
+  license_plate: string | null;
+  lease_start_date: string;
+  lease_end_date: string;
+  total_miles_allowed: number;
+  miles_per_year: number;
+  starting_odometer: number;
+  current_odometer: number | null;
+  overage_cost_per_mile: string;
+  monthly_payment: string | null;
+  dealer_name: string | null;
+  dealer_phone: string | null;
+  contract_number: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ILeaseWithRole extends ILease {
+  role: TLeaseRole;
+}

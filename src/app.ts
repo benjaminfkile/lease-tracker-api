@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
 import usersRouter from "./routers/usersRouter";
+import leasesRouter from "./routers/leasesRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -42,6 +43,7 @@ app.get("/", (req: Request, res: Response) => {
 
 app.use("/api/health", healthRouter);
 app.use("/api/users", usersRouter);
+app.use("/api/leases", leasesRouter);
 
 app.use(errorHandler);
 
