@@ -38,6 +38,7 @@ jest.mock("../src/db/alertConfigs", () => ({
 
 jest.mock("../src/db/savedTrips", () => ({
   getReservedTripMiles: jest.fn(),
+  getTrips: jest.fn(),
 }));
 
 jest.mock("../src/db/readings", () => ({
@@ -55,7 +56,7 @@ import { upsertUser } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
-import { getReservedTripMiles } from "../src/db/savedTrips";
+import { getReservedTripMiles, getTrips } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
 
@@ -71,6 +72,7 @@ const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
+const mockGetTrips = getTrips as jest.Mock;
 const mockGetReadings = getReadings as jest.Mock;
 const mockCreateOdometerReading = createOdometerReading as jest.Mock;
 const mockGetReading = getReading as jest.Mock;
@@ -1031,6 +1033,137 @@ describe("GET /api/leases/:leaseId/summary", () => {
       .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/trips
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/trips", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const fakeActiveTrip = {
+    id: "eeeeeeee-0000-0000-0000-000000000001",
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    name: "Weekend Drive",
+    estimated_miles: 150,
+    trip_date: "2025-07-04",
+    notes: null,
+    is_completed: false,
+    created_at: new Date("2025-06-01T00:00:00Z"),
+    updated_at: new Date("2025-06-01T00:00:00Z"),
+  };
+
+  const fakeCompletedTrip = {
+    id: "ffffffff-0000-0000-0000-000000000002",
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    name: "Road Trip",
+    estimated_miles: 500,
+    trip_date: "2025-05-20",
+    notes: "fun trip",
+    is_completed: true,
+    created_at: new Date("2025-05-01T00:00:00Z"),
+    updated_at: new Date("2025-05-20T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/trips`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 200 with empty active and completed arrays when no trips exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetTrips.mockResolvedValueOnce([]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ active: [], completed: [] });
+  });
+
+  it("returns 200 with trips separated into active and completed", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetTrips.mockResolvedValueOnce([fakeActiveTrip, fakeCompletedTrip]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.active).toHaveLength(1);
+    expect(res.body.active[0].id).toBe(fakeActiveTrip.id);
+    expect(res.body.active[0].is_completed).toBe(false);
+    expect(res.body.completed).toHaveLength(1);
+    expect(res.body.completed[0].id).toBe(fakeCompletedTrip.id);
+    expect(res.body.completed[0].is_completed).toBe(true);
+  });
+
+  it("allows viewer role to access trips", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetTrips.mockResolvedValueOnce([fakeActiveTrip]);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 500 when getTrips throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetTrips.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/trips`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
   });
 });
 
