@@ -21,6 +21,10 @@ jest.mock("../src/services/appleReceipt", () => ({
   verifyAppleReceipt: jest.fn(),
 }));
 
+jest.mock("../src/services/googlePlayVerify", () => ({
+  verifyGooglePurchase: jest.fn(),
+}));
+
 jest.mock("../src/db/subscriptions", () => ({
   upsertSubscription: jest.fn(),
 }));
@@ -29,12 +33,14 @@ jest.mock("../src/db/subscriptions", () => ({
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { verifyAppleReceipt } from "../src/services/appleReceipt";
+import { verifyGooglePurchase } from "../src/services/googlePlayVerify";
 import { upsertSubscription } from "../src/db/subscriptions";
 import subscriptionsRouter from "../src/routers/subscriptionsRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
 const mockUpsertUser = upsertUser as jest.Mock;
 const mockVerifyAppleReceipt = verifyAppleReceipt as jest.Mock;
+const mockVerifyGooglePurchase = verifyGooglePurchase as jest.Mock;
 const mockUpsertSubscription = upsertSubscription as jest.Mock;
 
 // ---------------------------------------------------------------------------
@@ -68,6 +74,16 @@ const fakeAppleResult = {
   transaction_id: "1000000123456789",
   environment: "production" as const,
   raw_receipt: "base64encodedreceipt",
+};
+
+const fakeGoogleResult = {
+  is_active: true,
+  expires_at: new Date("2027-06-01T00:00:00Z"),
+  product_id: "com.example.app.premium.monthly",
+  purchase_token: "google-purchase-token-abc123",
+  order_id: "GPA.1234-5678-9012-34567",
+  environment: "production" as const,
+  raw_receipt: JSON.stringify({ kind: "androidpublisher#subscriptionPurchase", expiryTimeMillis: "1780272000000" }),
 };
 
 // ---------------------------------------------------------------------------
@@ -276,6 +292,248 @@ describe("POST /api/subscriptions/apple/verify", () => {
       .post("/api/subscriptions/apple/verify")
       .set("Authorization", "Bearer valid.token")
       .send({ receipt_data: "base64receipt", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.is_active).toBe(false);
+    expect(res.body.expires_at).toBe("2020-01-01T00:00:00.000Z");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/subscriptions/google/verify
+// ---------------------------------------------------------------------------
+
+describe("POST /api/subscriptions/google/verify", () => {
+  const OLD_ENV = process.env;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...OLD_ENV, GOOGLE_PLAY_PACKAGE_NAME: "com.example.app" };
+  });
+
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .send({ purchase_token: "token-abc", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 when token is invalid", async () => {
+    mockVerify.mockRejectedValueOnce(new Error("Invalid signature"));
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer bad.token")
+      .send({ purchase_token: "token-abc", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when token is expired", async () => {
+    const expiredError = Object.assign(new Error("Token is expired"), {
+      name: "JwtExpiredError",
+    });
+    mockVerify.mockRejectedValueOnce(expiredError);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer expired.token")
+      .send({ purchase_token: "token-abc", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when purchase_token is missing", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ product_id: "com.example.premium" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when product_id is missing", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "token-abc" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when purchase_token is an empty string", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 200 with is_active, expires_at and product_id on success", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "google-purchase-token-abc123", product_id: "com.example.app.premium.monthly" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      is_active: true,
+      expires_at: "2027-06-01T00:00:00.000Z",
+      product_id: "com.example.app.premium.monthly",
+    });
+  });
+
+  it("calls verifyGooglePurchase with packageName, product_id and purchase_token", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "my-purchase-token", product_id: "com.example.premium" });
+
+    expect(mockVerifyGooglePurchase).toHaveBeenCalledWith(
+      "com.example.app",
+      "com.example.premium",
+      "my-purchase-token"
+    );
+  });
+
+  it("calls upsertSubscription with correct data including platform=google", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "google-purchase-token-abc123", product_id: "com.example.app.premium.monthly" });
+
+    expect(mockUpsertSubscription).toHaveBeenCalledWith(fakeUser.id, {
+      platform: "google",
+      product_id: fakeGoogleResult.product_id,
+      transaction_id: fakeGoogleResult.order_id,
+      purchase_token: fakeGoogleResult.purchase_token,
+      is_active: fakeGoogleResult.is_active,
+      expires_at: fakeGoogleResult.expires_at,
+      environment: fakeGoogleResult.environment,
+      raw_receipt: fakeGoogleResult.raw_receipt,
+    });
+  });
+
+  it("returns 500 when GOOGLE_PLAY_PACKAGE_NAME is not set", async () => {
+    delete process.env.GOOGLE_PLAY_PACKAGE_NAME;
+
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "token-abc", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 400 when verifyGooglePurchase throws an ApiError", async () => {
+    const { ApiError } = jest.requireActual("../src/utils/ApiError") as typeof import("../src/utils/ApiError");
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockRejectedValueOnce(
+      new ApiError(400, "Purchase not found on Google Play")
+    );
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "bad-token", product_id: "com.example.premium" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 500 when upsertSubscription throws", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockUpsertSubscription.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "google-purchase-token-abc123", product_id: "com.example.app.premium.monthly" });
+
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 200 and is_active=false when subscription is expired", async () => {
+    const expiredResult = {
+      ...fakeGoogleResult,
+      is_active: false,
+      expires_at: new Date("2020-01-01T00:00:00Z"),
+    };
+
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockVerifyGooglePurchase.mockResolvedValueOnce(expiredResult);
+    mockUpsertSubscription.mockResolvedValueOnce({});
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/verify")
+      .set("Authorization", "Bearer valid.token")
+      .send({ purchase_token: "google-purchase-token-abc123", product_id: "com.example.app.premium.monthly" });
 
     expect(res.status).toBe(200);
     expect(res.body.is_active).toBe(false);
