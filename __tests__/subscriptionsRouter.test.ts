@@ -33,6 +33,7 @@ jest.mock("../src/db/subscriptions", () => ({
   upsertSubscription: jest.fn(),
   getSubscriptionStatus: jest.fn(),
   handleAppleNotification: jest.fn(),
+  handleGoogleNotification: jest.fn(),
 }));
 
 // Import after mocks are in place.
@@ -45,6 +46,7 @@ import {
   upsertSubscription,
   getSubscriptionStatus,
   handleAppleNotification,
+  handleGoogleNotification,
 } from "../src/db/subscriptions";
 import subscriptionsRouter from "../src/routers/subscriptionsRouter";
 
@@ -56,6 +58,7 @@ const mockVerifyGooglePurchase = verifyGooglePurchase as jest.Mock;
 const mockUpsertSubscription = upsertSubscription as jest.Mock;
 const mockGetSubscriptionStatus = getSubscriptionStatus as jest.Mock;
 const mockHandleAppleNotification = handleAppleNotification as jest.Mock;
+const mockHandleGoogleNotification = handleGoogleNotification as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -837,5 +840,181 @@ describe("POST /api/subscriptions/apple/webhook", () => {
 
     expect(res.status).toBe(200);
     expect(mockVerifyAppleSignedPayload).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/subscriptions/google/webhook
+// ---------------------------------------------------------------------------
+
+describe("POST /api/subscriptions/google/webhook", () => {
+  const fakeGoogleNotification = {
+    version: "1.0",
+    packageName: "com.example.app",
+    eventTimeMillis: "1700000000000",
+    subscriptionNotification: {
+      version: "1.0",
+      notificationType: 2, // SUBSCRIPTION_RENEWED
+      purchaseToken: "google-purchase-token-abc123",
+      subscriptionId: "com.example.app.premium.monthly",
+    },
+  };
+
+  function encodedData(obj: unknown): string {
+    return Buffer.from(JSON.stringify(obj)).toString("base64");
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.GOOGLE_PLAY_PACKAGE_NAME = "com.example.app";
+  });
+
+  afterEach(() => {
+    delete process.env.GOOGLE_PLAY_PACKAGE_NAME;
+  });
+
+  it("returns 200 for a valid notification", async () => {
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockHandleGoogleNotification.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+  });
+
+  it("does not require authentication", async () => {
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockHandleGoogleNotification.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(res.status).toBe(200);
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  it("calls verifyGooglePurchase with packageName, subscriptionId and purchaseToken", async () => {
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockHandleGoogleNotification.mockResolvedValueOnce(undefined);
+
+    await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(mockVerifyGooglePurchase).toHaveBeenCalledWith(
+      "com.example.app",
+      "com.example.app.premium.monthly",
+      "google-purchase-token-abc123"
+    );
+  });
+
+  it("calls handleGoogleNotification with purchaseToken and verifyResult", async () => {
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockHandleGoogleNotification.mockResolvedValueOnce(undefined);
+
+    await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(mockHandleGoogleNotification).toHaveBeenCalledWith(
+      "google-purchase-token-abc123",
+      fakeGoogleResult
+    );
+  });
+
+  it("returns 200 even when verifyGooglePurchase throws", async () => {
+    const { ApiError } = jest.requireActual(
+      "../src/utils/ApiError"
+    ) as typeof import("../src/utils/ApiError");
+    mockVerifyGooglePurchase.mockRejectedValueOnce(
+      new ApiError(400, "Purchase not found on Google Play")
+    );
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(res.status).toBe(200);
+    expect(mockHandleGoogleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 even when handleGoogleNotification throws", async () => {
+    mockVerifyGooglePurchase.mockResolvedValueOnce(fakeGoogleResult);
+    mockHandleGoogleNotification.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 200 and skips processing when message is missing", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
+    expect(mockHandleGoogleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and skips processing when message.data is not a string", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: 12345 } });
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and skips processing when message.data is invalid base64/JSON", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: "!!!not-valid-base64!!!" } });
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and skips processing when notification has no subscriptionNotification", async () => {
+    const noSubNotification = {
+      version: "1.0",
+      packageName: "com.example.app",
+      eventTimeMillis: "1700000000000",
+    };
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(noSubNotification) } });
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
+    expect(mockHandleGoogleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and skips processing when GOOGLE_PLAY_PACKAGE_NAME is not set", async () => {
+    delete process.env.GOOGLE_PLAY_PACKAGE_NAME;
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send({ message: { data: encodedData(fakeGoogleNotification) } });
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
+    expect(mockHandleGoogleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 when request body is empty", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/google/webhook")
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyGooglePurchase).not.toHaveBeenCalled();
   });
 });
