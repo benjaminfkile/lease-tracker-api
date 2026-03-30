@@ -5,6 +5,7 @@ import helmet from "helmet";
 import healthRouter from "./routers/healthRouter";
 import usersRouter from "./routers/usersRouter";
 import leasesRouter from "./routers/leasesRouter";
+import subscriptionsRouter from "./routers/subscriptionsRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -44,6 +45,7 @@ app.get("/", (req: Request, res: Response) => {
 app.use("/api/health", healthRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/leases", leasesRouter);
+app.use("/api/subscriptions", subscriptionsRouter);
 
 app.use(errorHandler);
 
