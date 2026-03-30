@@ -19,7 +19,7 @@ import {
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
-import { createDefaultAlertConfigs } from "../db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
@@ -144,6 +144,25 @@ leasesRouter.get(
         req.dbUser!.subscription_tier
       );
       res.status(200).json(summary);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/alerts
+ * Returns all alert configs for the lease, ordered by created_at ASC.
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/alerts",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const alerts = await getAlertConfigs(req.params.leaseId);
+      res.status(200).json(alerts);
     } catch (err) {
       next(err);
     }
