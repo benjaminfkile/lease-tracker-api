@@ -149,6 +149,10 @@ export const InviteMemberSchema = z.object({
   role: z.union([z.literal("viewer"), z.literal("editor")]).optional(),
 });
 
+export const UpdateMemberRoleSchema = z.object({
+  role: z.union([z.literal("viewer"), z.literal("editor"), z.literal("owner")]),
+});
+
 // ---------------------------------------------------------------------------
 // User schemas
 // ---------------------------------------------------------------------------
@@ -184,3 +188,4 @@ export type UpdateAlertConfigInput = z.infer<typeof UpdateAlertConfigSchema>;
 export type VerifyAppleReceiptInput = z.infer<typeof VerifyAppleReceiptSchema>;
 export type VerifyGoogleReceiptInput = z.infer<typeof VerifyGoogleReceiptSchema>;
 export type InviteMemberInput = z.infer<typeof InviteMemberSchema>;
+export type UpdateMemberRoleInput = z.infer<typeof UpdateMemberRoleSchema>;

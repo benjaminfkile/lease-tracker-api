@@ -21,10 +21,12 @@ import {
   UpdateAlertConfigInput,
   InviteMemberSchema,
   InviteMemberInput,
+  UpdateMemberRoleSchema,
+  UpdateMemberRoleInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
-import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember } from "../db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember, updateLeaseMemberRole } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
@@ -236,6 +238,42 @@ leasesRouter.post(
 
       const member = await acceptLeaseMember(leaseId, userId);
       res.status(200).json(member);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PATCH /api/leases/:leaseId/members/:userId/role
+ * Updates the role of an existing lease member.
+ * The authenticated user must be the lease owner.
+ * The owner may not change their own role.
+ * Returns 404 if the target user is not a member of the lease.
+ */
+leasesRouter.patch(
+  "/:leaseId/members/:userId/role",
+  authAndLoad,
+  requireLeaseAccess("owner"),
+  validate(UpdateMemberRoleSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, userId } = req.params;
+      const { role } = req.body as UpdateMemberRoleInput;
+
+      if (userId === req.dbUser!.id) {
+        next(new ApiError(400, "Cannot change your own role"));
+        return;
+      }
+
+      const existing = await getLeaseMember(leaseId, userId);
+      if (!existing) {
+        next(new ApiError(404, "Member not found"));
+        return;
+      }
+
+      const updated = await updateLeaseMemberRole(leaseId, userId, role);
+      res.status(200).json(updated);
     } catch (err) {
       next(err);
     }
