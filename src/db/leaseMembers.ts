@@ -1,4 +1,5 @@
 import { ILeaseMember } from "../interfaces";
+import { TLeaseRole } from "../types";
 import { getDb } from "./db";
 
 export async function getLeaseMember(
@@ -13,4 +14,16 @@ export async function getLeaseMember(
 export async function leaseExists(leaseId: string): Promise<boolean> {
   const row = await getDb()("leases").where({ id: leaseId }).first();
   return row !== undefined;
+}
+
+export async function createLeaseMember(
+  leaseId: string,
+  userId: string,
+  role: TLeaseRole
+): Promise<ILeaseMember> {
+  const [member] = await getDb()<ILeaseMember>("lease_members")
+    .insert({ lease_id: leaseId, user_id: userId, role })
+    .returning("*");
+
+  return member;
 }
