@@ -125,6 +125,21 @@ describe("requireAuth middleware", () => {
       expect(err.statusCode).toBe(401);
     });
 
+    it("calls next with 401 ApiError when the token audience does not match (wrong audience)", async () => {
+      const wrongAudienceError = Object.assign(
+        new Error("Token has wrong audience"),
+        { name: "JwtInvalidClaimError", claimName: "aud" }
+      );
+      mockVerify.mockRejectedValueOnce(wrongAudienceError);
+
+      const { req, res, next } = mockReqResNext({ authorization: "Bearer wrong.audience.token" });
+      await requireAuth(req, res, next as NextFunction);
+
+      expect(next).toHaveBeenCalledWith(expect.any(ApiError));
+      const err = next.mock.calls[0][0] as ApiError;
+      expect(err.statusCode).toBe(401);
+    });
+
     it("does not attach cognitoUser when verification fails", async () => {
       mockVerify.mockRejectedValueOnce(new Error("Invalid"));
 
