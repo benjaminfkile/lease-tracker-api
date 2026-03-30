@@ -76,7 +76,7 @@ export const CreateOdometerReadingSchema = z.object({
 export const UpdateOdometerReadingSchema = z.object({
   odometer: z.number().int().min(0).optional(),
   reading_date: z.string().date().optional(),
-  notes: z.string().optional(),
+  notes: z.string().nullable().optional(),
   source: z.string().max(20).optional(),
 });
 
