@@ -185,3 +185,9 @@ export interface ILeaseEndOptions {
   roll_cost: number;
   recommendation: "return" | "buyout" | "roll";
 }
+
+export interface IMileageHistoryEntry {
+  month: string;
+  miles_driven: number;
+  expected_miles: number;
+}

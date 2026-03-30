@@ -1,4 +1,5 @@
-import { IBuybackAnalysis, ILease, ILeaseEndOptions, ILeaseSummary } from "../interfaces";
+import { IBuybackAnalysis, ILease, ILeaseEndOptions, ILeaseSummary, IMileageHistoryEntry } from "../interfaces";
+import { IOdometerReading } from "../interfaces";
 
 /**
  * Returns the number of whole days between two ISO date strings (YYYY-MM-DD).
@@ -164,4 +165,92 @@ export function computeLeaseEndOptions(
   }
 
   return { return_cost, buyout_cost, roll_cost, recommendation };
+}
+
+/**
+ * Computes a monthly mileage history suitable for charting.
+ *
+ * For each calendar month from lease_start_date through the earlier of today
+ * and lease_end_date:
+ *   - miles_driven  = delta between the last odometer reading in the month
+ *                     and the last odometer reading before the month started
+ *                     (falls back to lease.starting_odometer when no prior
+ *                     reading exists).  Clamped to 0 — never negative.
+ *   - expected_miles = miles_per_year / 12 (constant for every month)
+ *
+ * All arithmetic is pure — no database calls are made here.
+ *
+ * @param lease    - The lease record
+ * @param readings - All odometer readings for the lease, ordered ASC by reading_date
+ * @param today    - Reference date (defaults to today in UTC)
+ */
+export function computeMileageHistory(
+  lease: ILease,
+  readings: IOdometerReading[],
+  today: string = new Date().toISOString().slice(0, 10)
+): IMileageHistoryEntry[] {
+  const expectedMilesPerMonth = lease.miles_per_year / 12;
+
+  const startMonth = lease.lease_start_date.slice(0, 7);
+  const endDate = today < lease.lease_end_date ? today : lease.lease_end_date;
+  const endMonth = endDate.slice(0, 7);
+
+  if (endMonth < startMonth) {
+    return [];
+  }
+
+  // Build list of "YYYY-MM" strings from startMonth to endMonth inclusive.
+  const months: string[] = [];
+  let current = startMonth;
+  while (current <= endMonth) {
+    months.push(current);
+    const [y, m] = current.split("-").map(Number);
+    current =
+      m === 12
+        ? `${y + 1}-01`
+        : `${y}-${String(m + 1).padStart(2, "0")}`;
+  }
+
+  // Single forward scan through readings (already sorted ASC by reading_date).
+  // `baseline` tracks the last odometer value before the current month's window.
+  // `readingIdx` advances monotonically — O(n + m) total work.
+  let baseline = lease.starting_odometer;
+  let readingIdx = 0;
+
+  return months.map((month) => {
+    const [y, m] = month.split("-").map(Number);
+    const monthStart = `${month}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
+
+    // Advance past any readings strictly before this month; each one updates
+    // the baseline so the next month inherits the correct prior odometer.
+    while (
+      readingIdx < readings.length &&
+      readings[readingIdx].reading_date < monthStart
+    ) {
+      baseline = readings[readingIdx].odometer;
+      readingIdx++;
+    }
+
+    // Scan readings within [monthStart, monthEnd] to find the last reading
+    // for this month without consuming them from readingIdx — they will be
+    // processed as baseline advances in the next iteration.
+    let finalOdometer: number | null = null;
+    let scanIdx = readingIdx;
+    while (
+      scanIdx < readings.length &&
+      readings[scanIdx].reading_date <= monthEnd
+    ) {
+      finalOdometer = readings[scanIdx].odometer;
+      scanIdx++;
+    }
+
+    const miles_driven =
+      finalOdometer !== null
+        ? Math.max(0, finalOdometer - baseline)
+        : 0;
+
+    return { month, miles_driven, expected_miles: expectedMilesPerMonth };
+  });
 }

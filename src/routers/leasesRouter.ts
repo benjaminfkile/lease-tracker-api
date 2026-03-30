@@ -27,12 +27,12 @@ import {
   EndOptionsQuerySchema,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
-import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
+import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading, getReadingsAsc } from "../db/readings";
 import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember, updateLeaseMemberRole, deleteLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
-import { computeLeaseSummary, computeBuybackAnalysis, computeLeaseEndOptions } from "../utils/leaseCalculations";
+import { computeLeaseSummary, computeBuybackAnalysis, computeLeaseEndOptions, computeMileageHistory } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 import { sendPushNotification } from "../services/pushNotifications";
 
@@ -860,6 +860,36 @@ leasesRouter.get(
       );
 
       res.status(200).json(options);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/mileage-history
+ * Returns a monthly mileage summary suitable for charting.
+ * Each entry covers one calendar month from lease_start_date through the
+ * earlier of today and lease_end_date.  Includes:
+ *   - miles_driven:   miles recorded in that month (from odometer reading deltas)
+ *   - expected_miles: expected miles for the month (miles_per_year / 12)
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/mileage-history",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+
+      const readings = await getReadingsAsc(req.params.leaseId);
+      const history = computeMileageHistory(lease, readings);
+      res.status(200).json(history);
     } catch (err) {
       next(err);
     }
