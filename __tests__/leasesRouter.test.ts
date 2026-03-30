@@ -42,6 +42,7 @@ jest.mock("../src/db/savedTrips", () => ({
 
 jest.mock("../src/db/readings", () => ({
   getReadings: jest.fn(),
+  createOdometerReading: jest.fn(),
 }));
 
 // Import after mocks are in place.
@@ -51,7 +52,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../s
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
 import { getReservedTripMiles } from "../src/db/savedTrips";
-import { getReadings } from "../src/db/readings";
+import { getReadings, createOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
@@ -67,6 +68,7 @@ const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
 const mockGetReadings = getReadings as jest.Mock;
+const mockCreateOdometerReading = createOdometerReading as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1226,6 +1228,330 @@ describe("GET /api/leases/:leaseId/readings", () => {
     const res = await request(buildApp())
       .get(`/api/leases/${fakeLease.id}/readings`)
       .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/leases/:leaseId/readings
+// ---------------------------------------------------------------------------
+
+describe("POST /api/leases/:leaseId/readings", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const fakePostReading = {
+    id: "dddddddd-0000-0000-0000-000000000002",
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    odometer: 12500,
+    reading_date: "2025-06-15",
+    notes: null,
+    source: "manual",
+    created_at: new Date("2025-06-15T00:00:00Z"),
+  };
+
+  const validReadingBody = {
+    odometer: 12500,
+    reading_date: "2025-06-15",
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .send(validReadingBody);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has viewer role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when required fields are missing", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when odometer is negative", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: -1, reading_date: "2025-06-15" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when reading_date is not a valid date", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500, reading_date: "not-a-date" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when getLease returns undefined after access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 when reading_date is before the lease start date", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers); // lease_start_date: 2024-01-01
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500, reading_date: "2023-12-31" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/lease start date/i);
+  });
+
+  it("returns 400 when odometer is below starting_odometer", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    const leaseWithHighStart = {
+      ...fakeLeaseWithMembers,
+      starting_odometer: 100,
+      current_odometer: null,
+    };
+    mockGetLease.mockResolvedValueOnce(leaseWithHighStart);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 50, reading_date: "2025-06-15" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/starting odometer/i);
+  });
+
+  it("returns 400 when odometer goes backward (below current_odometer)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    const leaseWithCurrentOdometer = {
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: 5000,
+    };
+    mockGetLease.mockResolvedValueOnce(leaseWithCurrentOdometer);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 4999, reading_date: "2025-06-15" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/cannot go backward/i);
+  });
+
+  it("returns 201 with the created reading on success (editor role)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce(fakePostReading);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe(fakePostReading.id);
+    expect(res.body.odometer).toBe(fakePostReading.odometer);
+    expect(res.body.reading_date).toBe(fakePostReading.reading_date);
+  });
+
+  it("returns 201 with the created reading on success (owner role)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember); // owner
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce(fakePostReading);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
+
+    expect(res.status).toBe(201);
+  });
+
+  it("allows odometer equal to starting_odometer", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 12500,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce({
+      ...fakePostReading,
+      odometer: 12500,
+    });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500, reading_date: "2025-06-15" });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("allows reading_date equal to lease_start_date", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce(fakePostReading);
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500, reading_date: "2024-01-01" }); // matches lease_start_date
+
+    expect(res.status).toBe(201);
+  });
+
+  it("skips backward-check when current_odometer is null (first reading)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce({
+      ...fakePostReading,
+      odometer: 100,
+    });
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 100, reading_date: "2025-06-15" });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("calls createOdometerReading with correct leaseId, userId, and body", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockResolvedValueOnce(fakePostReading);
+
+    await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ odometer: 12500, reading_date: "2025-06-15", notes: "Test note" });
+
+    expect(mockCreateOdometerReading).toHaveBeenCalledWith(
+      fakeLease.id,
+      fakeUser.id,
+      expect.objectContaining({
+        odometer: 12500,
+        reading_date: "2025-06-15",
+        notes: "Test note",
+      })
+    );
+  });
+
+  it("returns 500 when createOdometerReading throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetLease.mockResolvedValueOnce({
+      ...fakeLeaseWithMembers,
+      starting_odometer: 0,
+      current_odometer: null,
+    });
+    mockCreateOdometerReading.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post(`/api/leases/${fakeLease.id}/readings`)
+      .set("Authorization", "Bearer valid.token")
+      .send(validReadingBody);
 
     expect(res.status).toBe(500);
   });
