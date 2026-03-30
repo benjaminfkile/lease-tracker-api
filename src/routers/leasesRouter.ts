@@ -15,11 +15,13 @@ import {
   CreateSavedTripInput,
   UpdateSavedTripSchema,
   UpdateSavedTripInput,
+  CreateAlertConfigSchema,
+  CreateAlertConfigInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
-import { createDefaultAlertConfigs, getAlertConfigs } from "../db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
@@ -33,6 +35,10 @@ type CreateReadingBodyInput = Omit<CreateOdometerReadingInput, "lease_id">;
 // Schema for the POST trips body — lease_id comes from the URL param, not the body.
 const CreateTripBodySchema = CreateSavedTripSchema.omit({ lease_id: true });
 type CreateTripBodyInput = Omit<CreateSavedTripInput, "lease_id">;
+
+// Schema for the POST alerts body — lease_id comes from the URL param, not the body.
+const CreateAlertConfigBodySchema = CreateAlertConfigSchema.omit({ lease_id: true });
+type CreateAlertConfigBodyInput = Omit<CreateAlertConfigInput, "lease_id">;
 
 /**
  * GET /api/leases
@@ -163,6 +169,27 @@ leasesRouter.get(
     try {
       const alerts = await getAlertConfigs(req.params.leaseId);
       res.status(200).json(alerts);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/leases/:leaseId/alerts
+ * Creates a custom alert config for the lease.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.post(
+  "/:leaseId/alerts",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(CreateAlertConfigBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = req.body as CreateAlertConfigBodyInput;
+      const alert = await createAlertConfig(req.params.leaseId, req.dbUser!.id, data);
+      res.status(201).json(alert);
     } catch (err) {
       next(err);
     }

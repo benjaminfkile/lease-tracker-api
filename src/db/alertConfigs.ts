@@ -11,6 +11,26 @@ export async function getAlertConfigs(leaseId: string): Promise<IAlertConfig[]> 
 }
 
 /**
+ * Creates a custom alert config for a lease.
+ */
+export async function createAlertConfig(
+  leaseId: string,
+  userId: string,
+  data: { alert_type: string; threshold_value?: number; is_enabled?: boolean }
+): Promise<IAlertConfig> {
+  const [row] = await getDb()<IAlertConfig>("alert_configs")
+    .insert({
+      lease_id: leaseId,
+      user_id: userId,
+      alert_type: data.alert_type,
+      threshold_value: data.threshold_value ?? null,
+      is_enabled: data.is_enabled ?? true,
+    })
+    .returning("*");
+  return row;
+}
+
+/**
  * Creates the three default alert configs for a newly created lease:
  *   - miles_threshold: threshold_value = 80, meaning alert when 80% of
  *     total_miles_allowed is reached
