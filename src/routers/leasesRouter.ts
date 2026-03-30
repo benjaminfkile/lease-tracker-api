@@ -22,7 +22,7 @@ import {
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
-import { createLeaseMember } from "../db/leaseMembers";
+import { createLeaseMember, getLeaseMembers } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
@@ -123,6 +123,25 @@ leasesRouter.put(
         return;
       }
       res.status(200).json(lease);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/members
+ * Returns all members of the lease including their display_name and email.
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/members",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const members = await getLeaseMembers(req.params.leaseId);
+      res.status(200).json(members);
     } catch (err) {
       next(err);
     }

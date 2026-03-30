@@ -1,4 +1,4 @@
-import { ILeaseMember } from "../interfaces";
+import { ILeaseMember, ILeaseMemberWithUser } from "../interfaces";
 import { TLeaseRole } from "../types";
 import { getDb } from "./db";
 
@@ -9,6 +9,19 @@ export async function getLeaseMember(
   return getDb()<ILeaseMember>("lease_members")
     .where({ lease_id: leaseId, user_id: userId })
     .first();
+}
+
+export async function getLeaseMembers(
+  leaseId: string
+): Promise<ILeaseMemberWithUser[]> {
+  return getDb()<ILeaseMemberWithUser>("lease_members")
+    .join("users", "lease_members.user_id", "users.id")
+    .where("lease_members.lease_id", leaseId)
+    .select(
+      "lease_members.*",
+      "users.display_name",
+      "users.email"
+    );
 }
 
 export async function leaseExists(leaseId: string): Promise<boolean> {

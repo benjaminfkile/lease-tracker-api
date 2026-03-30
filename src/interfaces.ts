@@ -56,6 +56,11 @@ export interface ILeaseMember {
   created_at: Date;
 }
 
+export interface ILeaseMemberWithUser extends ILeaseMember {
+  display_name: string | null;
+  email: string;
+}
+
 export interface ILease {
   id: string;
   user_id: string;
