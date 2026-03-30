@@ -11,6 +11,33 @@ export async function getAlertConfigs(leaseId: string): Promise<IAlertConfig[]> 
 }
 
 /**
+ * Returns a single alert config by its ID, scoped to the given lease.
+ */
+export async function getAlertConfig(
+  leaseId: string,
+  alertId: string
+): Promise<IAlertConfig | undefined> {
+  return getDb()<IAlertConfig>("alert_configs")
+    .where({ id: alertId, lease_id: leaseId })
+    .first();
+}
+
+/**
+ * Updates is_enabled and/or threshold_value on an existing alert config.
+ */
+export async function updateAlertConfig(
+  leaseId: string,
+  alertId: string,
+  data: { is_enabled?: boolean; threshold_value?: number | null }
+): Promise<IAlertConfig | undefined> {
+  const [row] = await getDb()<IAlertConfig>("alert_configs")
+    .where({ id: alertId, lease_id: leaseId })
+    .update(data)
+    .returning("*");
+  return row;
+}
+
+/**
  * Creates a custom alert config for a lease.
  */
 export async function createAlertConfig(

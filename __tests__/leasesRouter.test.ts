@@ -36,6 +36,8 @@ jest.mock("../src/db/alertConfigs", () => ({
   createDefaultAlertConfigs: jest.fn(),
   getAlertConfigs: jest.fn(),
   createAlertConfig: jest.fn(),
+  getAlertConfig: jest.fn(),
+  updateAlertConfig: jest.fn(),
 }));
 
 jest.mock("../src/db/savedTrips", () => ({
@@ -61,7 +63,7 @@ import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
-import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig } from "../src/db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig } from "../src/db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
 import leasesRouter from "../src/routers/leasesRouter";
@@ -79,6 +81,8 @@ const mockLeaseExists = leaseExists as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetAlertConfigs = getAlertConfigs as jest.Mock;
 const mockCreateAlertConfig = createAlertConfig as jest.Mock;
+const mockGetAlertConfig = getAlertConfig as jest.Mock;
+const mockUpdateAlertConfig = updateAlertConfig as jest.Mock;
 const mockGetReservedTripMiles = getReservedTripMiles as jest.Mock;
 const mockGetTrips = getTrips as jest.Mock;
 const mockCreateTrip = createTrip as jest.Mock;
@@ -1401,6 +1405,194 @@ describe("POST /api/leases/:leaseId/alerts", () => {
       .post(`/api/leases/${fakeLease.id}/alerts`)
       .set("Authorization", "Bearer valid.token")
       .send(validAlertBody);
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/leases/:leaseId/alerts/:alertId
+// ---------------------------------------------------------------------------
+
+describe("PUT /api/leases/:leaseId/alerts/:alertId", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const alertId = "aaaaaaaa-1111-0000-0000-000000000010";
+
+  const existingAlertConfig = {
+    id: alertId,
+    lease_id: fakeLease.id,
+    user_id: fakeUser.id,
+    alert_type: "miles_threshold",
+    threshold_value: 80,
+    is_enabled: true,
+    last_sent_at: null,
+    created_at: new Date("2024-01-01T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has viewer role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 when the alert config does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetAlertConfig.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("Alert config not found");
+  });
+
+  it("returns 400 when threshold_value is negative", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ threshold_value: -1 });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when alert_type is provided (not an updatable field)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ alert_type: "invalid_type" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 200 with the updated alert config when toggling is_enabled for editor role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetAlertConfig.mockResolvedValueOnce(existingAlertConfig);
+    const updatedAlert = { ...existingAlertConfig, is_enabled: false };
+    mockUpdateAlertConfig.mockResolvedValueOnce(updatedAlert);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.is_enabled).toBe(false);
+    expect(mockUpdateAlertConfig).toHaveBeenCalledWith(
+      fakeLease.id,
+      alertId,
+      expect.objectContaining({ is_enabled: false })
+    );
+  });
+
+  it("returns 200 with the updated alert config when adjusting threshold_value for editor role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetAlertConfig.mockResolvedValueOnce(existingAlertConfig);
+    const updatedAlert = { ...existingAlertConfig, threshold_value: 90 };
+    mockUpdateAlertConfig.mockResolvedValueOnce(updatedAlert);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ threshold_value: 90 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.threshold_value).toBe(90);
+    expect(mockUpdateAlertConfig).toHaveBeenCalledWith(
+      fakeLease.id,
+      alertId,
+      expect.objectContaining({ threshold_value: 90 })
+    );
+  });
+
+  it("returns 200 with updated alert config when updating both fields for owner role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember); // owner
+    mockGetAlertConfig.mockResolvedValueOnce(existingAlertConfig);
+    const updatedAlert = { ...existingAlertConfig, threshold_value: 95, is_enabled: false };
+    mockUpdateAlertConfig.mockResolvedValueOnce(updatedAlert);
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ threshold_value: 95, is_enabled: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.threshold_value).toBe(95);
+    expect(res.body.is_enabled).toBe(false);
+  });
+
+  it("returns 500 when updateAlertConfig throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+    mockGetAlertConfig.mockResolvedValueOnce(existingAlertConfig);
+    mockUpdateAlertConfig.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .put(`/api/leases/${fakeLease.id}/alerts/${alertId}`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ is_enabled: false });
 
     expect(res.status).toBe(500);
   });

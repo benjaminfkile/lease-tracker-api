@@ -17,11 +17,13 @@ import {
   UpdateSavedTripInput,
   CreateAlertConfigSchema,
   CreateAlertConfigInput,
+  UpdateAlertConfigSchema,
+  UpdateAlertConfigInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
-import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig } from "../db/alertConfigs";
+import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
@@ -190,6 +192,35 @@ leasesRouter.post(
       const data = req.body as CreateAlertConfigBodyInput;
       const alert = await createAlertConfig(req.params.leaseId, req.dbUser!.id, data);
       res.status(201).json(alert);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * PUT /api/leases/:leaseId/alerts/:alertId
+ * Toggles is_enabled and/or adjusts threshold_value on an existing alert config.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.put(
+  "/:leaseId/alerts/:alertId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(UpdateAlertConfigSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, alertId } = req.params;
+      const data = req.body as UpdateAlertConfigInput;
+
+      const existing = await getAlertConfig(leaseId, alertId);
+      if (!existing) {
+        next(new ApiError(404, "Alert config not found"));
+        return;
+      }
+
+      const updated = await updateAlertConfig(leaseId, alertId, data);
+      res.status(200).json(updated);
     } catch (err) {
       next(err);
     }
