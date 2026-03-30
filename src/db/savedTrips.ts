@@ -83,3 +83,19 @@ export async function updateTrip(
     .returning("*");
   return trip;
 }
+
+/**
+ * Deletes a saved trip by lease and trip id and returns the deleted record.
+ * Returns undefined when no matching trip exists.
+ */
+export async function deleteTrip(
+  leaseId: string,
+  tripId: string
+): Promise<ISavedTrip | undefined> {
+  const db = getDb();
+  const [trip] = await db<ISavedTrip>("saved_trips")
+    .where({ id: tripId, lease_id: leaseId })
+    .delete()
+    .returning("*");
+  return trip;
+}

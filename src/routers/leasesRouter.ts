@@ -20,7 +20,7 @@ import { getLeases, createLease, getLease, updateLease, deleteLease } from "../d
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
-import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip } from "../db/savedTrips";
+import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
@@ -218,6 +218,29 @@ leasesRouter.put(
 
       const updated = await updateTrip(leaseId, tripId, data);
       res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/leases/:leaseId/trips/:tripId
+ * Deletes a saved trip. Requires at least 'editor' role.
+ */
+leasesRouter.delete(
+  "/:leaseId/trips/:tripId",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, tripId } = req.params;
+      const trip = await deleteTrip(leaseId, tripId);
+      if (!trip) {
+        next(new ApiError(404, "Trip not found"));
+        return;
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }
