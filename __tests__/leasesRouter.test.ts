@@ -33,6 +33,7 @@ jest.mock("../src/db/leaseMembers", () => ({
   getLeaseMembers: jest.fn(),
   leaseExists: jest.fn(),
   acceptLeaseMember: jest.fn(),
+  updateLeaseMemberRole: jest.fn(),
 }));
 
 jest.mock("../src/db/alertConfigs", () => ({
@@ -70,7 +71,7 @@ jest.mock("../src/services/pushNotifications", () => ({
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser, getUserByEmail } from "../src/db/users";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
-import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember } from "../src/db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember, updateLeaseMemberRole } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../src/db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../src/db/savedTrips";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../src/db/readings";
@@ -90,6 +91,7 @@ const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockGetLeaseMembers = getLeaseMembers as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
 const mockAcceptLeaseMember = acceptLeaseMember as jest.Mock;
+const mockUpdateLeaseMemberRole = updateLeaseMemberRole as jest.Mock;
 const mockCreateDefaultAlertConfigs = createDefaultAlertConfigs as jest.Mock;
 const mockGetAlertConfigs = getAlertConfigs as jest.Mock;
 const mockCreateAlertConfig = createAlertConfig as jest.Mock;
@@ -3958,6 +3960,196 @@ describe("POST /api/leases/:leaseId/members/accept", () => {
     const res = await request(buildApp())
       .post(`/api/leases/${fakeLease.id}/members/accept`)
       .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/leases/:leaseId/members/:userId/role
+// ---------------------------------------------------------------------------
+
+describe("PATCH /api/leases/:leaseId/members/:userId/role", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const targetUser: IUser = {
+    id: "dddddddd-0000-0000-0000-000000000004",
+    cognito_user_id: "us-east-1_TEST:sub-002",
+    email: "target@example.com",
+    display_name: "Target User",
+    subscription_tier: "free",
+    subscription_expires_at: null,
+    push_token: null,
+    created_at: new Date("2026-01-01T00:00:00Z"),
+    updated_at: new Date("2026-01-01T00:00:00Z"),
+  };
+
+  const targetMember: ILeaseMember = {
+    id: "eeeeeeee-0000-0000-0000-000000000005",
+    lease_id: fakeLease.id,
+    user_id: targetUser.id,
+    role: "viewer",
+    invited_by: fakeUser.id,
+    accepted_at: new Date("2026-01-02T00:00:00Z"),
+    created_at: new Date("2026-01-01T00:00:00Z"),
+  };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when authenticated user is not the lease owner", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when role is missing from body", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when role is not a valid value", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "superadmin" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when trying to change own role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${fakeUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe("Cannot change your own role");
+  });
+
+  it("returns 404 when target user is not a member of the lease", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toBe("Member not found");
+  });
+
+  it("returns 200 with the updated member when role is changed to editor", async () => {
+    const updatedMember: ILeaseMember = { ...targetMember, role: "editor" };
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLeaseMember.mockResolvedValueOnce(targetMember);
+    mockUpdateLeaseMemberRole.mockResolvedValueOnce(updatedMember);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.role).toBe("editor");
+    expect(res.body.user_id).toBe(targetUser.id);
+  });
+
+  it("returns 200 with the updated member when role is changed to owner", async () => {
+    const updatedMember: ILeaseMember = { ...targetMember, role: "owner" };
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLeaseMember.mockResolvedValueOnce(targetMember);
+    mockUpdateLeaseMemberRole.mockResolvedValueOnce(updatedMember);
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "owner" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.role).toBe("owner");
+  });
+
+  it("calls updateLeaseMemberRole with correct arguments", async () => {
+    const updatedMember: ILeaseMember = { ...targetMember, role: "editor" };
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLeaseMember.mockResolvedValueOnce(targetMember);
+    mockUpdateLeaseMemberRole.mockResolvedValueOnce(updatedMember);
+
+    await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
+
+    expect(mockUpdateLeaseMemberRole).toHaveBeenCalledWith(
+      fakeLease.id,
+      targetUser.id,
+      "editor"
+    );
+  });
+
+  it("returns 500 when updateLeaseMemberRole throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLeaseMember.mockResolvedValueOnce(targetMember);
+    mockUpdateLeaseMemberRole.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .patch(`/api/leases/${fakeLease.id}/members/${targetUser.id}/role`)
+      .set("Authorization", "Bearer valid.token")
+      .send({ role: "editor" });
 
     expect(res.status).toBe(500);
   });

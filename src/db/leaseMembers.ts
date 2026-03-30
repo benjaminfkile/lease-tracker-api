@@ -53,3 +53,16 @@ export async function acceptLeaseMember(
 
   return member;
 }
+
+export async function updateLeaseMemberRole(
+  leaseId: string,
+  userId: string,
+  role: TLeaseRole
+): Promise<ILeaseMember | undefined> {
+  const [member] = await getDb()<ILeaseMember>("lease_members")
+    .where({ lease_id: leaseId, user_id: userId })
+    .update({ role })
+    .returning("*");
+
+  return member;
+}
