@@ -87,3 +87,14 @@ export interface ILease {
 export interface ILeaseWithRole extends ILease {
   role: TLeaseRole;
 }
+
+export interface IAlertConfig {
+  id: string;
+  lease_id: string;
+  user_id: string;
+  alert_type: string;
+  threshold_value: number | null;
+  is_enabled: boolean;
+  last_sent_at: Date | null;
+  created_at: Date;
+}

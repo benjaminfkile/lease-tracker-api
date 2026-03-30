@@ -1,5 +1,35 @@
-import { ILeaseWithRole } from "../interfaces";
+import { ILease, ILeaseWithRole } from "../interfaces";
+import { CreateLeaseInput } from "../validation/schemas";
 import { getDb } from "./db";
+
+/**
+ * Shape used when inserting a new lease row. Decimal fields are stored as
+ * numbers on insert; PostgreSQL returns them as strings when reading back.
+ */
+type NewLeaseRecord = CreateLeaseInput & {
+  user_id: string;
+  starting_odometer: number;
+  is_active: boolean;
+};
+
+/**
+ * Inserts a new lease row and returns the created record.
+ */
+export async function createLease(
+  userId: string,
+  data: CreateLeaseInput
+): Promise<ILease> {
+  const [lease] = await getDb()<ILease>("leases")
+    .insert({
+      user_id: userId,
+      ...data,
+      starting_odometer: data.starting_odometer ?? 0,
+      is_active: data.is_active ?? true,
+    } as unknown as Partial<ILease>)
+    .returning("*");
+
+  return lease;
+}
 
 /**
  * Returns all active leases for the given user — both leases they own
