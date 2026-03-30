@@ -11,12 +11,14 @@ import {
   CreateOdometerReadingInput,
   UpdateOdometerReadingSchema,
   UpdateOdometerReadingInput,
+  CreateSavedTripSchema,
+  CreateSavedTripInput,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
-import { getReservedTripMiles, getTrips } from "../db/savedTrips";
+import { getReservedTripMiles, getTrips, createTrip } from "../db/savedTrips";
 import { computeLeaseSummary } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 
@@ -25,6 +27,10 @@ const leasesRouter = express.Router();
 // Schema for the POST readings body — lease_id comes from the URL param, not the body.
 const CreateReadingBodySchema = CreateOdometerReadingSchema.omit({ lease_id: true });
 type CreateReadingBodyInput = Omit<CreateOdometerReadingInput, "lease_id">;
+
+// Schema for the POST trips body — lease_id comes from the URL param, not the body.
+const CreateTripBodySchema = CreateSavedTripSchema.omit({ lease_id: true });
+type CreateTripBodyInput = Omit<CreateSavedTripInput, "lease_id">;
 
 /**
  * GET /api/leases
@@ -158,6 +164,28 @@ leasesRouter.get(
       const active = trips.filter((t) => !t.is_completed);
       const completed = trips.filter((t) => t.is_completed);
       res.status(200).json({ active, completed });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/leases/:leaseId/trips
+ * Creates a new saved trip for the lease.
+ * estimated_miles must be >= 1.
+ * Requires at least 'editor' role.
+ */
+leasesRouter.post(
+  "/:leaseId/trips",
+  authAndLoad,
+  requireLeaseAccess("editor"),
+  validate(CreateTripBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = req.body as CreateTripBodyInput;
+      const trip = await createTrip(req.params.leaseId, req.dbUser!.id, data);
+      res.status(201).json(trip);
     } catch (err) {
       next(err);
     }

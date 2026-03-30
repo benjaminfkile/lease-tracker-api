@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { ISavedTrip } from "../interfaces";
+import { CreateSavedTripInput } from "../validation/schemas";
 
 /**
  * Returns the sum of estimated_miles for all active (not completed) saved
@@ -23,4 +24,31 @@ export async function getTrips(leaseId: string): Promise<ISavedTrip[]> {
   return db("saved_trips")
     .where({ lease_id: leaseId })
     .orderByRaw("trip_date ASC NULLS LAST");
+}
+
+/**
+ * Inserts a new saved trip for the given lease.
+ *
+ * @param leaseId - UUID of the lease
+ * @param userId  - UUID of the user creating the trip
+ * @param data    - Validated trip payload (without lease_id)
+ */
+export async function createTrip(
+  leaseId: string,
+  userId: string,
+  data: Omit<CreateSavedTripInput, "lease_id">
+): Promise<ISavedTrip> {
+  const db = getDb();
+  const [trip] = await db<ISavedTrip>("saved_trips")
+    .insert({
+      lease_id: leaseId,
+      user_id: userId,
+      name: data.name,
+      estimated_miles: data.estimated_miles,
+      trip_date: data.trip_date ?? null,
+      notes: data.notes ?? null,
+      is_completed: data.is_completed ?? false,
+    })
+    .returning("*");
+  return trip;
 }
