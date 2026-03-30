@@ -132,6 +132,21 @@ export interface IOdometerReading {
   created_at: Date;
 }
 
+export interface ISubscription {
+  id: string;
+  user_id: string;
+  platform: string;
+  product_id: string;
+  transaction_id: string | null;
+  purchase_token: string | null;
+  is_active: boolean;
+  expires_at: Date | null;
+  environment: string | null;
+  raw_receipt: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface ILeaseSummary {
   miles_driven: number;
   miles_remaining: number;
