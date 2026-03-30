@@ -24,6 +24,7 @@ import {
   UpdateMemberRoleSchema,
   UpdateMemberRoleInput,
   BuybackAnalysisQuerySchema,
+  EndOptionsQuerySchema,
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
@@ -31,7 +32,7 @@ import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, accept
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
-import { computeLeaseSummary, computeBuybackAnalysis } from "../utils/leaseCalculations";
+import { computeLeaseSummary, computeBuybackAnalysis, computeLeaseEndOptions } from "../utils/leaseCalculations";
 import { ApiError } from "../utils/ApiError";
 import { sendPushNotification } from "../services/pushNotifications";
 
@@ -801,6 +802,64 @@ leasesRouter.get(
       );
 
       res.status(200).json(analysis);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/end-options
+ * Computes modeled costs for three lease-end scenarios:
+ *   - return:  pay projected overage miles at the lease's overage rate
+ *   - buyout:  purchase the vehicle at the user-supplied residual value
+ *   - roll:    enter a new lease for the remaining months at a hypothetical payment
+ * Returns all three costs and a recommendation (lowest total cost).
+ * Query params:
+ *   ?residual_value=<number>      – vehicle purchase price offered at end of lease
+ *   ?new_monthly_payment=<number> – hypothetical monthly payment for a new lease
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/end-options",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const queryResult = EndOptionsQuerySchema.safeParse(req.query);
+      if (!queryResult.success) {
+        next(
+          new ApiError(
+            400,
+            queryResult.error.issues.map((i) => i.message).join("; ")
+          )
+        );
+        return;
+      }
+      const { residual_value, new_monthly_payment } = queryResult.data;
+
+      const lease = await getLease(req.params.leaseId);
+      if (!lease) {
+        next(new ApiError(404, "Lease not found"));
+        return;
+      }
+
+      const reservedTripMiles = await getReservedTripMiles(req.params.leaseId);
+      const summary = computeLeaseSummary(
+        lease,
+        reservedTripMiles,
+        req.dbUser!.subscription_tier
+      );
+
+      const options = computeLeaseEndOptions(
+        summary.projected_overage,
+        parseFloat(lease.overage_cost_per_mile),
+        residual_value,
+        summary.days_remaining,
+        new_monthly_payment
+      );
+
+      res.status(200).json(options);
     } catch (err) {
       next(err);
     }

@@ -4614,3 +4614,235 @@ describe("GET /api/leases/:leaseId/buyback-analysis", () => {
     expect(mockGetReservedTripMiles).toHaveBeenCalledWith(fakeLease.id);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/leases/:leaseId/end-options
+// ---------------------------------------------------------------------------
+
+describe("GET /api/leases/:leaseId/end-options", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const validQuery = "residual_value=15000&new_monthly_payment=500";
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).get(
+      `/api/leases/${fakeLease.id}/end-options?${validQuery}`
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when lease does not exist for access check", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the user is not a member of the lease", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when residual_value is missing", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?new_monthly_payment=500`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when new_monthly_payment is missing", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?residual_value=15000`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when new_monthly_payment is zero", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?residual_value=15000&new_monthly_payment=0`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when new_monthly_payment is negative", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?residual_value=15000&new_monthly_payment=-100`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when residual_value is not a number", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?residual_value=abc&new_monthly_payment=500`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 when getLease returns undefined", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 200 with correct fields on success", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("return_cost");
+    expect(res.body).toHaveProperty("buyout_cost");
+    expect(res.body).toHaveProperty("roll_cost");
+    expect(res.body).toHaveProperty("recommendation");
+  });
+
+  it("sets buyout_cost to the supplied residual_value", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?residual_value=20000&new_monthly_payment=500`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.buyout_cost).toBe(20000);
+  });
+
+  it("recommendation is one of the valid scenario values", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+    expect(["return", "buyout", "roll"]).toContain(res.body.recommendation);
+  });
+
+  it("allows viewer role to access end-options", async () => {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 500 when getLease throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when getReservedTripMiles throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(500);
+  });
+
+  it("calls getLease with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetLease).toHaveBeenCalledWith(fakeLease.id);
+  });
+
+  it("calls getReservedTripMiles with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockGetLease.mockResolvedValueOnce(fakeLeaseWithMembers);
+    mockGetReservedTripMiles.mockResolvedValueOnce(0);
+
+    await request(buildApp())
+      .get(`/api/leases/${fakeLease.id}/end-options?${validQuery}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockGetReservedTripMiles).toHaveBeenCalledWith(fakeLease.id);
+  });
+});

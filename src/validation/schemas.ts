@@ -160,6 +160,11 @@ export const BuybackAnalysisQuerySchema = z.object({
   dealer_buyback_rate: z.coerce.number().positive(),
 });
 
+export const EndOptionsQuerySchema = z.object({
+  residual_value: z.coerce.number().nonnegative(),
+  new_monthly_payment: z.coerce.number().positive(),
+});
+
 // ---------------------------------------------------------------------------
 // User schemas
 // ---------------------------------------------------------------------------
@@ -197,3 +202,4 @@ export type VerifyGoogleReceiptInput = z.infer<typeof VerifyGoogleReceiptSchema>
 export type InviteMemberInput = z.infer<typeof InviteMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof UpdateMemberRoleSchema>;
 export type BuybackAnalysisQueryInput = z.infer<typeof BuybackAnalysisQuerySchema>;
+export type EndOptionsQueryInput = z.infer<typeof EndOptionsQuerySchema>;
