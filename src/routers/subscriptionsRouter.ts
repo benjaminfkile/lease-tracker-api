@@ -8,8 +8,13 @@ import {
   VerifyGoogleReceiptInput,
 } from "../validation/schemas";
 import { verifyAppleReceipt } from "../services/appleReceipt";
+import { verifyAppleSignedPayload } from "../services/appleWebhook";
 import { verifyGooglePurchase } from "../services/googlePlayVerify";
-import { upsertSubscription, getSubscriptionStatus } from "../db/subscriptions";
+import {
+  upsertSubscription,
+  getSubscriptionStatus,
+  handleAppleNotification,
+} from "../db/subscriptions";
 import { ApiError } from "../utils/ApiError";
 
 const subscriptionsRouter = express.Router();
@@ -53,6 +58,9 @@ subscriptionsRouter.post(
         platform: "apple",
         product_id: result.product_id,
         transaction_id: result.transaction_id,
+        ...(result.original_transaction_id != null && {
+          original_transaction_id: result.original_transaction_id,
+        }),
         is_active: result.is_active,
         expires_at: result.expires_at,
         environment: result.environment,
@@ -111,6 +119,35 @@ subscriptionsRouter.post(
     } catch (err) {
       next(err);
     }
+  }
+);
+
+/**
+ * POST /api/subscriptions/apple/webhook
+ * Receives signed JWT (JWS) notifications from Apple's App Store Server
+ * Notifications service for events such as renewals, cancellations, billing
+ * retries, and grace periods.
+ *
+ * The signedPayload is verified against Apple's certificate chain and the
+ * subscription record is updated accordingly.
+ *
+ * Always returns 200 — Apple retries on any non-2xx response.
+ */
+subscriptionsRouter.post(
+  "/apple/webhook",
+  async (req: Request, res: Response) => {
+    try {
+      const { signedPayload } = req.body as { signedPayload?: unknown };
+
+      if (signedPayload && typeof signedPayload === "string") {
+        const notification = verifyAppleSignedPayload(signedPayload);
+        await handleAppleNotification(notification);
+      }
+    } catch (err) {
+      console.error("[apple/webhook] error processing notification:", err);
+    }
+
+    res.status(200).json({ received: true });
   }
 );
 

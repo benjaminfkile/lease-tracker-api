@@ -138,6 +138,7 @@ export interface ISubscription {
   platform: string;
   product_id: string;
   transaction_id: string | null;
+  original_transaction_id: string | null;
   purchase_token: string | null;
   is_active: boolean;
   expires_at: Date | null;

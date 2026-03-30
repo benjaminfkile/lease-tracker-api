@@ -1,5 +1,6 @@
 import { ISubscription } from "../interfaces";
 import { getDb } from "./db";
+import { DecodedAppleNotification } from "../services/appleWebhook";
 
 export interface SubscriptionStatus {
   is_active: boolean;
@@ -12,6 +13,7 @@ export interface UpsertSubscriptionData {
   platform: string;
   product_id: string;
   transaction_id?: string | null;
+  original_transaction_id?: string | null;
   purchase_token?: string | null;
   is_active: boolean;
   expires_at: Date;
@@ -41,6 +43,7 @@ export async function upsertSubscription(
       .update({
         product_id: data.product_id,
         transaction_id: data.transaction_id ?? null,
+        original_transaction_id: data.original_transaction_id ?? null,
         purchase_token: data.purchase_token ?? null,
         is_active: data.is_active,
         expires_at: data.expires_at,
@@ -102,3 +105,93 @@ export async function getSubscriptionStatus(userId: string): Promise<Subscriptio
     platform: row.platform,
   };
 }
+
+// Notification types for which the subscription remains active
+const ACTIVE_NOTIFICATION_TYPES = new Set([
+  "SUBSCRIBED",
+  "DID_RENEW",
+  "DID_CHANGE_RENEWAL_PREF",
+  "DID_CHANGE_RENEWAL_STATUS",
+  "OFFER_REDEEMED",
+]);
+
+/**
+ * Determines whether a given notification type+subtype indicates that the
+ * subscription should still be considered active.
+ *
+ * DID_FAIL_TO_RENEW with subtype GRACE_PERIOD means the user is in a billing
+ * retry window and still has access, so it counts as active.
+ */
+function isActiveNotification(notificationType: string, subtype?: string): boolean {
+  if (notificationType === "DID_FAIL_TO_RENEW") {
+    return subtype === "GRACE_PERIOD";
+  }
+  return ACTIVE_NOTIFICATION_TYPES.has(notificationType);
+}
+
+/**
+ * Processes a decoded Apple App Store Server Notification and updates the
+ * matching subscription record and the user's subscription tier.
+ *
+ * Looks up the subscription by `original_transaction_id`.  If no matching
+ * record is found the notification is silently ignored (Apple may notify about
+ * subscriptions created before this server recorded them).
+ */
+export async function handleAppleNotification(
+  notification: DecodedAppleNotification
+): Promise<void> {
+  const txInfo = notification.transactionInfo;
+
+  // Some notification types (e.g. CONSUMPTION_REQUEST, TEST) carry no
+  // transaction info — nothing to update.
+  if (!txInfo?.originalTransactionId) {
+    return;
+  }
+
+  const { originalTransactionId, productId, expiresDate } = txInfo;
+  const isActive = isActiveNotification(notification.notificationType, notification.subtype);
+  const expiresAt = expiresDate != null ? new Date(expiresDate) : null;
+
+  const db = getDb();
+
+  const subscription = await db<ISubscription>("subscriptions")
+    .where({ original_transaction_id: originalTransactionId, platform: "apple" })
+    .first();
+
+  if (!subscription) {
+    return;
+  }
+
+  // Update subscription record
+  await db("subscriptions")
+    .where({ id: subscription.id })
+    .update({
+      is_active: isActive,
+      ...(productId && { product_id: productId }),
+      ...(expiresAt !== null && { expires_at: expiresAt }),
+    });
+
+  // Keep users table in sync
+  if (isActive) {
+    await db("users")
+      .where({ id: subscription.user_id })
+      .update({
+        subscription_tier: "premium",
+        ...(expiresAt !== null && { subscription_expires_at: expiresAt }),
+      });
+  } else {
+    // Downgrade to free only if no other active subscription exists
+    const otherActive = await db("subscriptions")
+      .where({ user_id: subscription.user_id, is_active: true })
+      .whereNot({ id: subscription.id })
+      .count<{ count: string }>("id as count")
+      .first();
+
+    if (!otherActive || Number(otherActive.count) === 0) {
+      await db("users").where({ id: subscription.user_id }).update({
+        subscription_tier: "free",
+      });
+    }
+  }
+}
+

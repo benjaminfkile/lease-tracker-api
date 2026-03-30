@@ -25,25 +25,37 @@ jest.mock("../src/services/googlePlayVerify", () => ({
   verifyGooglePurchase: jest.fn(),
 }));
 
+jest.mock("../src/services/appleWebhook", () => ({
+  verifyAppleSignedPayload: jest.fn(),
+}));
+
 jest.mock("../src/db/subscriptions", () => ({
   upsertSubscription: jest.fn(),
   getSubscriptionStatus: jest.fn(),
+  handleAppleNotification: jest.fn(),
 }));
 
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
 import { verifyAppleReceipt } from "../src/services/appleReceipt";
+import { verifyAppleSignedPayload } from "../src/services/appleWebhook";
 import { verifyGooglePurchase } from "../src/services/googlePlayVerify";
-import { upsertSubscription, getSubscriptionStatus } from "../src/db/subscriptions";
+import {
+  upsertSubscription,
+  getSubscriptionStatus,
+  handleAppleNotification,
+} from "../src/db/subscriptions";
 import subscriptionsRouter from "../src/routers/subscriptionsRouter";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
 const mockUpsertUser = upsertUser as jest.Mock;
 const mockVerifyAppleReceipt = verifyAppleReceipt as jest.Mock;
+const mockVerifyAppleSignedPayload = verifyAppleSignedPayload as jest.Mock;
 const mockVerifyGooglePurchase = verifyGooglePurchase as jest.Mock;
 const mockUpsertSubscription = upsertSubscription as jest.Mock;
 const mockGetSubscriptionStatus = getSubscriptionStatus as jest.Mock;
+const mockHandleAppleNotification = handleAppleNotification as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -689,5 +701,141 @@ describe("GET /api/subscriptions/status", () => {
       .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/subscriptions/apple/webhook
+// ---------------------------------------------------------------------------
+
+describe("POST /api/subscriptions/apple/webhook", () => {
+  const fakeNotification = {
+    notificationType: "DID_RENEW",
+    subtype: undefined,
+    notificationUUID: "abc-123-uuid",
+    data: {
+      environment: "Production",
+      bundleId: "com.example.app",
+    },
+    version: "2.0",
+    signedDate: 1700000000000,
+    transactionInfo: {
+      transactionId: "NEW_TXN_001",
+      originalTransactionId: "ORIG_TXN_001",
+      bundleId: "com.example.app",
+      productId: "com.example.app.premium.monthly",
+      purchaseDate: 1700000000000,
+      originalPurchaseDate: 1690000000000,
+      expiresDate: new Date("2027-01-01T00:00:00Z").getTime(),
+      type: "Auto-Renewable Subscription",
+      inAppOwnershipType: "PURCHASED",
+      signedDate: 1700000000000,
+      environment: "Production",
+    },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("returns 200 for a valid notification", async () => {
+    mockVerifyAppleSignedPayload.mockReturnValueOnce(fakeNotification);
+    mockHandleAppleNotification.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "eyJ.valid.payload" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+  });
+
+  it("does not require authentication", async () => {
+    mockVerifyAppleSignedPayload.mockReturnValueOnce(fakeNotification);
+    mockHandleAppleNotification.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "eyJ.valid.payload" });
+
+    expect(res.status).toBe(200);
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  it("calls verifyAppleSignedPayload with the signedPayload from the request body", async () => {
+    mockVerifyAppleSignedPayload.mockReturnValueOnce(fakeNotification);
+    mockHandleAppleNotification.mockResolvedValueOnce(undefined);
+
+    await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "eyJ.signed.payload" });
+
+    expect(mockVerifyAppleSignedPayload).toHaveBeenCalledWith("eyJ.signed.payload");
+  });
+
+  it("calls handleAppleNotification with the decoded notification", async () => {
+    mockVerifyAppleSignedPayload.mockReturnValueOnce(fakeNotification);
+    mockHandleAppleNotification.mockResolvedValueOnce(undefined);
+
+    await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "eyJ.valid.payload" });
+
+    expect(mockHandleAppleNotification).toHaveBeenCalledWith(fakeNotification);
+  });
+
+  it("returns 200 even when verifyAppleSignedPayload throws", async () => {
+    const { ApiError } = jest.requireActual(
+      "../src/utils/ApiError"
+    ) as typeof import("../src/utils/ApiError");
+    mockVerifyAppleSignedPayload.mockImplementationOnce(() => {
+      throw new ApiError(400, "JWS signature verification failed");
+    });
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "bad.signed.payload" });
+
+    expect(res.status).toBe(200);
+    expect(mockHandleAppleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 even when handleAppleNotification throws", async () => {
+    mockVerifyAppleSignedPayload.mockReturnValueOnce(fakeNotification);
+    mockHandleAppleNotification.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: "eyJ.valid.payload" });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 200 and skips processing when signedPayload is missing", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyAppleSignedPayload).not.toHaveBeenCalled();
+    expect(mockHandleAppleNotification).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 and skips processing when signedPayload is not a string", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send({ signedPayload: 12345 });
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyAppleSignedPayload).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 when request body is empty", async () => {
+    const res = await request(buildApp())
+      .post("/api/subscriptions/apple/webhook")
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(mockVerifyAppleSignedPayload).not.toHaveBeenCalled();
   });
 });
