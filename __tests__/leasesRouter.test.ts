@@ -23,6 +23,7 @@ jest.mock("../src/db/leases", () => ({
   createLease: jest.fn(),
   getLease: jest.fn(),
   updateLease: jest.fn(),
+  deleteLease: jest.fn(),
 }));
 
 jest.mock("../src/db/leaseMembers", () => ({
@@ -38,7 +39,7 @@ jest.mock("../src/db/alertConfigs", () => ({
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
-import { getLeases, createLease, getLease, updateLease } from "../src/db/leases";
+import { getLeases, createLease, getLease, updateLease, deleteLease } from "../src/db/leases";
 import { createLeaseMember, getLeaseMember, leaseExists } from "../src/db/leaseMembers";
 import { createDefaultAlertConfigs } from "../src/db/alertConfigs";
 import leasesRouter from "../src/routers/leasesRouter";
@@ -49,6 +50,7 @@ const mockGetLeases = getLeases as jest.Mock;
 const mockCreateLease = createLease as jest.Mock;
 const mockGetLease = getLease as jest.Mock;
 const mockUpdateLease = updateLease as jest.Mock;
+const mockDeleteLease = deleteLease as jest.Mock;
 const mockCreateLeaseMember = createLeaseMember as jest.Mock;
 const mockGetLeaseMember = getLeaseMember as jest.Mock;
 const mockLeaseExists = leaseExists as jest.Mock;
@@ -731,6 +733,123 @@ describe("PUT /api/leases/:leaseId", () => {
       .put(`/api/leases/${fakeLease.id}`)
       .set("Authorization", "Bearer valid.token")
       .send(validUpdateBody);
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("DELETE /api/leases/:leaseId", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function authSetup() {
+    mockVerify.mockResolvedValueOnce({
+      sub: fakeUser.cognito_user_id,
+      email: fakeUser.email,
+    });
+    mockUpsertUser.mockResolvedValueOnce(fakeUser);
+  }
+
+  const deletedLease: ILease = { ...createdLease, is_active: false };
+
+  it("returns 401 when Authorization header is absent", async () => {
+    const res = await request(buildApp()).delete(`/api/leases/${fakeLease.id}`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the lease does not exist", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(false);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when the lease exists but the user is not a member", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(undefined);
+    mockLeaseExists.mockResolvedValueOnce(true);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has viewer role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "viewer" });
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user only has editor role", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce({ ...fakeMember, role: "editor" });
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 204 with no body on success (owner role)", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember); // owner
+    mockDeleteLease.mockResolvedValueOnce(deletedLease);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(204);
+    expect(res.body).toEqual({});
+  });
+
+  it("calls deleteLease with the correct leaseId", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockDeleteLease.mockResolvedValueOnce(deletedLease);
+
+    await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(mockDeleteLease).toHaveBeenCalledWith(fakeLease.id);
+  });
+
+  it("returns 404 when deleteLease returns undefined", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockDeleteLease.mockResolvedValueOnce(undefined);
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 500 when deleteLease throws", async () => {
+    authSetup();
+    mockGetLeaseMember.mockResolvedValueOnce(fakeMember);
+    mockDeleteLease.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await request(buildApp())
+      .delete(`/api/leases/${fakeLease.id}`)
+      .set("Authorization", "Bearer valid.token");
 
     expect(res.status).toBe(500);
   });
