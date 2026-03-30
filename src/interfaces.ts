@@ -148,6 +148,11 @@ export interface ISubscription {
   updated_at: Date;
 }
 
+export interface INotificationSecrets {
+  sns_apns_platform_arn: string;
+  sns_fcm_platform_arn: string;
+}
+
 export interface ILeaseSummary {
   miles_driven: number;
   miles_remaining: number;
