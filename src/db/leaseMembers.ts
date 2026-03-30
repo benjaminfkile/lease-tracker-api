@@ -66,3 +66,15 @@ export async function updateLeaseMemberRole(
 
   return member;
 }
+
+export async function deleteLeaseMember(
+  leaseId: string,
+  userId: string
+): Promise<ILeaseMember | undefined> {
+  const [member] = await getDb()<ILeaseMember>("lease_members")
+    .where({ lease_id: leaseId, user_id: userId })
+    .delete()
+    .returning("*");
+
+  return member;
+}

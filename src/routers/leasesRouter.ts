@@ -26,7 +26,7 @@ import {
 } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
 import { getReadings, createOdometerReading, getReading, getMaxOdometerExcluding, updateOdometerReading, deleteOdometerReading } from "../db/readings";
-import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember, updateLeaseMemberRole } from "../db/leaseMembers";
+import { createLeaseMember, getLeaseMember, getLeaseMembers, leaseExists, acceptLeaseMember, updateLeaseMemberRole, deleteLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs, getAlertConfigs, createAlertConfig, getAlertConfig, updateAlertConfig, deleteAlertConfig } from "../db/alertConfigs";
 import { getReservedTripMiles, getTrips, createTrip, getTrip, updateTrip, deleteTrip } from "../db/savedTrips";
 import { getUserByEmail } from "../db/users";
@@ -274,6 +274,49 @@ leasesRouter.patch(
 
       const updated = await updateLeaseMemberRole(leaseId, userId, role);
       res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/leases/:leaseId/members/:userId
+ * Removes a member from the lease.
+ * The owner may remove any member. Any member may remove themselves (leave).
+ * Cannot remove the owner while other members still exist — transfer ownership first.
+ */
+leasesRouter.delete(
+  "/:leaseId/members/:userId",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { leaseId, userId } = req.params;
+      const callerRole = req.leaseMember!.role;
+      const isSelf = userId === req.dbUser!.id;
+
+      if (!isSelf && callerRole !== "owner") {
+        next(new ApiError(403, "Forbidden"));
+        return;
+      }
+
+      const target = await getLeaseMember(leaseId, userId);
+      if (!target) {
+        next(new ApiError(404, "Member not found"));
+        return;
+      }
+
+      if (target.role === "owner") {
+        const allMembers = await getLeaseMembers(leaseId);
+        if (allMembers.length > 1) {
+          next(new ApiError(400, "Transfer ownership before removing the owner"));
+          return;
+        }
+      }
+
+      await deleteLeaseMember(leaseId, userId);
+      res.status(204).send();
     } catch (err) {
       next(err);
     }
