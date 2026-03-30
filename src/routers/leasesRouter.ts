@@ -4,6 +4,7 @@ import { validate } from "../middleware/validate";
 import { requireLeaseAccess } from "../middleware/requireLeaseAccess";
 import { CreateLeaseSchema, CreateLeaseInput, UpdateLeaseSchema, UpdateLeaseInput } from "../validation/schemas";
 import { getLeases, createLease, getLease, updateLease, deleteLease } from "../db/leases";
+import { getReadings } from "../db/readings";
 import { createLeaseMember } from "../db/leaseMembers";
 import { createDefaultAlertConfigs } from "../db/alertConfigs";
 import { getReservedTripMiles } from "../db/savedTrips";
@@ -122,6 +123,51 @@ leasesRouter.get(
         req.dbUser!.subscription_tier
       );
       res.status(200).json(summary);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/leases/:leaseId/readings
+ * Returns all odometer readings for the lease ordered by reading_date DESC.
+ * Supports optional query params:
+ *   ?limit=<n>       – cap the number of results returned
+ *   ?before=<date>   – only return readings with reading_date < date (YYYY-MM-DD)
+ * Requires at least 'viewer' role.
+ */
+leasesRouter.get(
+  "/:leaseId/readings",
+  authAndLoad,
+  requireLeaseAccess("viewer"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { limit, before } = req.query;
+
+      let parsedLimit: number | undefined;
+      if (limit !== undefined) {
+        parsedLimit = parseInt(String(limit), 10);
+        if (isNaN(parsedLimit) || parsedLimit < 1) {
+          next(new ApiError(400, "limit must be a positive integer"));
+          return;
+        }
+      }
+
+      let parsedBefore: string | undefined;
+      if (before !== undefined) {
+        parsedBefore = String(before);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedBefore)) {
+          next(new ApiError(400, "before must be a valid date (YYYY-MM-DD)"));
+          return;
+        }
+      }
+
+      const readings = await getReadings(req.params.leaseId, {
+        limit: parsedLimit,
+        before: parsedBefore,
+      });
+      res.status(200).json(readings);
     } catch (err) {
       next(err);
     }

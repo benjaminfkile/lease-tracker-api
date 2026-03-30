@@ -116,6 +116,17 @@ export interface ISavedTrip {
   updated_at: Date;
 }
 
+export interface IOdometerReading {
+  id: string;
+  lease_id: string;
+  user_id: string;
+  odometer: number;
+  reading_date: string;
+  notes: string | null;
+  source: string;
+  created_at: Date;
+}
+
 export interface ILeaseSummary {
   miles_driven: number;
   miles_remaining: number;
