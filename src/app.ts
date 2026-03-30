@@ -6,6 +6,7 @@ import healthRouter from "./routers/healthRouter";
 import usersRouter from "./routers/usersRouter";
 import leasesRouter from "./routers/leasesRouter";
 import subscriptionsRouter from "./routers/subscriptionsRouter";
+import internalRouter from "./routers/internalRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -46,6 +47,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/leases", leasesRouter);
 app.use("/api/subscriptions", subscriptionsRouter);
+app.use("/api/internal", internalRouter);
 
 app.use(errorHandler);
 
