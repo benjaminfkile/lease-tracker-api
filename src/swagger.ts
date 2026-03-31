@@ -1,4 +1,5 @@
-import { Router, Request, Response } from "express";
+import swaggerUi from "swagger-ui-express";
+import { RequestHandler } from "express";
 
 const swaggerDocument: object = {
   openapi: "3.0.0",
@@ -886,36 +887,5 @@ const swaggerDocument: object = {
   },
 };
 
-const swaggerRouter = Router();
-
-swaggerRouter.get("/spec.json", (_req: Request, res: Response) => {
-  res.json(swaggerDocument);
-});
-
-swaggerRouter.get("/", (_req: Request, res: Response) => {
-  res.send(`<!DOCTYPE html>
-<html>
-  <head>
-    <title>LeaseTracker API Docs</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
-  </head>
-  <body>
-    <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
-    <script>
-      window.onload = function () {
-        SwaggerUIBundle({
-          url: "spec.json",
-          dom_id: "#swagger-ui",
-          presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
-          layout: "BaseLayout",
-        });
-      };
-    </script>
-  </body>
-</html>`);
-});
-
-export default swaggerRouter;
+export const swaggerUiHandler: RequestHandler = swaggerUi.setup(swaggerDocument);
+export const swaggerServe: RequestHandler[] = swaggerUi.serve;

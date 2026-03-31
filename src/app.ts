@@ -8,7 +8,7 @@ import subscriptionsRouter from "./routers/subscriptionsRouter";
 import internalRouter from "./routers/internalRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
-import swaggerRouter from "./swagger";
+import { swaggerUiHandler, swaggerServe } from "./swagger";
 
 const app: Express = express();
 
@@ -30,7 +30,9 @@ app.use("/api/subscriptions", subscriptionsRouter);
 app.use("/api/internal", internalRouter);
 
 if (process.env.NODE_ENV !== "production") {
-  app.use("/api-docs", swaggerRouter);
+  app.get("/api-docs", swaggerUiHandler);
+  app.get("/api-docs/", swaggerUiHandler);
+  app.use("/api-docs", swaggerServe);
 }
 
 app.use(errorHandler);
