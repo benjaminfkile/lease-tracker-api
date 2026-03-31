@@ -3,7 +3,6 @@ import http from "http";
 import { initDb } from "./src/db/db";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
-import { getLocalAppSecrets, getLocalDBSecrets } from "./src/aws/getLocalSecrets";
 import { IAPISecrets, IDBSecrets } from "./src/interfaces";
 import app from "./src/app";
 import morgan from "morgan";
@@ -20,16 +19,8 @@ async function start() {
   try {
     const isLocal = process.env.IS_LOCAL === "true";
 
-    let appSecrets: IAPISecrets;
-    let dbSecrets: IDBSecrets;
-
-    if (isLocal) {
-      appSecrets = getLocalAppSecrets();
-      dbSecrets = getLocalDBSecrets();
-    } else {
-      appSecrets = await getAppSecrets();
-      dbSecrets = await getDBSecrets();
-    }
+    const appSecrets: IAPISecrets = await getAppSecrets();
+    const dbSecrets: IDBSecrets = await getDBSecrets();
 
     app.set("secrets", appSecrets);
 
