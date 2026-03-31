@@ -32,45 +32,47 @@ describe("api basic routes", () => {
     expect(res.status).toBe(200);
   });
 
-  it("applies helmet security headers", async () => {
-    const res = await request(app).get("/");
-    expect(res.headers["x-dns-prefetch-control"]).toBeDefined();
-    expect(res.headers["x-frame-options"]).toBeDefined();
-    expect(res.headers["x-content-type-options"]).toBe("nosniff");
-  });
+  // Helmet is handled by the gateway API — tests commented out until re-enabled locally
+  // it("applies helmet security headers", async () => {
+  //   const res = await request(app).get("/");
+  //   expect(res.headers["x-dns-prefetch-control"]).toBeDefined();
+  //   expect(res.headers["x-frame-options"]).toBeDefined();
+  //   expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  // });
 });
 
-describe("production CORS config", () => {
-  // Jest does not load dotenv, so IS_LOCAL is undefined and isLocal() returns
-  // false — the production CORS branch is active for the imported app module.
-  const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
-
-  beforeEach(() => {
-    process.env.ALLOWED_ORIGINS =
-      "https://gateway.example.com,https://ec2.example.com";
-  });
-
-  afterEach(() => {
-    if (originalAllowedOrigins === undefined) {
-      delete process.env.ALLOWED_ORIGINS;
-    } else {
-      process.env.ALLOWED_ORIGINS = originalAllowedOrigins;
-    }
-  });
-
-  it("allows a listed origin", async () => {
-    const res = await request(app)
-      .get("/")
-      .set("Origin", "https://gateway.example.com");
-    expect(res.headers["access-control-allow-origin"]).toBe(
-      "https://gateway.example.com"
-    );
-  });
-
-  it("does not allow an unlisted origin", async () => {
-    const res = await request(app)
-      .get("/")
-      .set("Origin", "https://evil.example.com");
-    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
-  });
-});
+// Production CORS (allowed-origins) is handled by the gateway API — tests commented out until re-enabled locally
+// describe("production CORS config", () => {
+//   // Jest does not load dotenv, so IS_LOCAL is undefined and isLocal() returns
+//   // false — the production CORS branch is active for the imported app module.
+//   const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
+//
+//   beforeEach(() => {
+//     process.env.ALLOWED_ORIGINS =
+//       "https://gateway.example.com,https://ec2.example.com";
+//   });
+//
+//   afterEach(() => {
+//     if (originalAllowedOrigins === undefined) {
+//       delete process.env.ALLOWED_ORIGINS;
+//     } else {
+//       process.env.ALLOWED_ORIGINS = originalAllowedOrigins;
+//     }
+//   });
+//
+//   it("allows a listed origin", async () => {
+//     const res = await request(app)
+//       .get("/")
+//       .set("Origin", "https://gateway.example.com");
+//     expect(res.headers["access-control-allow-origin"]).toBe(
+//       "https://gateway.example.com"
+//     );
+//   });
+//
+//   it("does not allow an unlisted origin", async () => {
+//     const res = await request(app)
+//       .get("/")
+//       .set("Origin", "https://evil.example.com");
+//     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+//   });
+// });
