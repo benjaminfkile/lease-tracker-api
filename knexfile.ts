@@ -1,4 +1,7 @@
+import dotenv from "dotenv";
 import type { Knex } from "knex";
+
+dotenv.config();
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -29,7 +32,10 @@ const seeds = {
 const config: Record<string, Knex.Config> = {
   development: {
     client: "pg",
-    connection: buildConnection,
+    connection: () => ({
+      ...buildConnection(),
+      ssl: { rejectUnauthorized: false },
+    }),
     migrations,
     seeds,
   },
