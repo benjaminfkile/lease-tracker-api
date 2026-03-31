@@ -1,5 +1,6 @@
 import { verify, X509Certificate } from "crypto";
 import { ApiError } from "../utils/ApiError";
+import { getAppConfigValue } from "../aws/getAppConfig";
 
 // ---------------------------------------------------------------------------
 // Apple notification payload types (App Store Server Notifications v2)
@@ -75,8 +76,10 @@ function decodeJWSPayloadUnsafe(jws: string): unknown {
  * https://www.apple.com/certificateauthority/
  * and set its PEM content in the APPLE_ROOT_CA_PEM environment variable.
  */
-function getAppleRootCaPem(): string {
-  const pem = process.env.APPLE_ROOT_CA_PEM;
+async function getAppleRootCaPem(): Promise<string> {
+  const pem = await getAppConfigValue("APPLE_ROOT_CA_PEM", {
+    required: true,
+  });
   if (!pem) {
     throw new ApiError(
       500,
@@ -104,7 +107,7 @@ function getAppleRootCaPem(): string {
  *  5. Verify the JWS signature with the leaf certificate's public key (ES256)
  *  6. Decode the notification payload and any nested JWS payloads
  */
-export function verifyAppleSignedPayload(signedPayload: string): DecodedAppleNotification {
+export async function verifyAppleSignedPayload(signedPayload: string): Promise<DecodedAppleNotification> {
   // 1. Split the compact JWS serialisation
   const parts = signedPayload.split(".");
   if (parts.length !== 3) {
@@ -142,7 +145,7 @@ export function verifyAppleSignedPayload(signedPayload: string): DecodedAppleNot
   }
 
   // 5. Verify the chain root against the configured Apple Root CA
-  const rootCaPem = getAppleRootCaPem();
+  const rootCaPem = await getAppleRootCaPem();
   let appleRoot: X509Certificate;
   try {
     appleRoot = new X509Certificate(rootCaPem);

@@ -9,8 +9,20 @@ import subscriptionsRouter from "./routers/subscriptionsRouter";
 import internalRouter from "./routers/internalRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
+import { getAppConfigValue } from "./aws/getAppConfig";
 
 const app: Express = express();
+
+function getAllowedOrigins(): Promise<string[]> {
+  return getAppConfigValue("ALLOWED_ORIGINS")
+    .then((rawOrigins) =>
+      (rawOrigins ?? "")
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    )
+    .catch(() => []);
+}
 
 app.use(helmet());
 app.use(express.json());
@@ -22,18 +34,15 @@ if (isLocal()) {
   app.use(
     cors({
       origin: (origin, callback) => {
-        const rawOrigins = process.env.ALLOWED_ORIGINS ?? "";
-        const allowedOrigins = rawOrigins
-          .split(",")
-          .map((o) => o.trim())
-          .filter(Boolean);
-        // Requests without an Origin header are direct/server-to-server calls
-        // (e.g. the bk-gateway-api proxy). These bypass browser CORS and are allowed.
-        if (!origin || allowedOrigins.includes(origin)) {
-          callback(null, origin ?? true);
-        } else {
-          callback(null, false);
-        }
+        void getAllowedOrigins().then((allowedOrigins) => {
+          // Requests without an Origin header are direct/server-to-server calls
+          // (e.g. the bk-gateway-api proxy). These bypass browser CORS and are allowed.
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, origin ?? true);
+          } else {
+            callback(null, false);
+          }
+        });
       },
     })
   );

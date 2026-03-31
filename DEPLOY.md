@@ -35,13 +35,29 @@ Holds application-level runtime configuration.
 | `db_name` | `string` | PostgreSQL database name |
 | `node_env` | `"development"` \| `"production"` | Runtime environment |
 | `port` | `string` | HTTP port the server listens on (e.g. `"3005"`) |
+| `allowed_origins` | `string` | Comma-separated browser origins allowed by CORS |
+| `cognito_user_pool_id` | `string` | Cognito user pool ID used for JWT verification |
+| `cognito_client_id` | `string` | Cognito app client ID used for JWT verification |
+| `internal_api_key` | `string` | Shared key required by internal protected endpoints |
+| `google_play_package_name` | `string` | Android package name used for Google Play purchase verification |
+| `google_service_account_key` | `string (JSON)` | Google service account credentials JSON used for Play API access |
+| `apple_shared_secret` | `string` | App Store shared secret for Apple receipt verification |
+| `apple_root_ca_pem` | `string` | PEM-encoded Apple Root CA certificate for webhook signature verification |
 
 **Example JSON:**
 ```json
 {
   "db_name": "leasetracker",
   "node_env": "production",
-  "port": "3005"
+  "port": "3005",
+  "allowed_origins": "https://gateway.example.com,https://app.example.com",
+  "cognito_user_pool_id": "us-east-1_jDeByVRDz",
+  "cognito_client_id": "4qjv485gtrrl4db41sme3epr17",
+  "internal_api_key": "replace-with-strong-random-value",
+  "google_play_package_name": "com.example.app",
+  "google_service_account_key": "{\"type\":\"service_account\",\"project_id\":\"...\"}",
+  "apple_shared_secret": "replace-with-app-store-shared-secret",
+  "apple_root_ca_pem": "-----BEGIN CERTIFICATE-----\\n...\\n-----END CERTIFICATE-----"
 }
 ```
 
@@ -278,11 +294,7 @@ If the service is migrated from an Auto Scaling Group to Amazon ECS (Fargate or 
     { "name": "AWS_REGION",        "value": "<AWS_REGION>" },
     { "name": "AWS_SECRET_ARN",    "value": "<AWS_SECRET_ARN>" },
     { "name": "AWS_DB_SECRET_ARN", "value": "<AWS_DB_SECRET_ARN>" },
-    { "name": "AWS_PUSH_SECRET_ARN", "value": "<AWS_PUSH_SECRET_ARN>" },
-    { "name": "COGNITO_USER_POOL_ID", "value": "<COGNITO_USER_POOL_ID>" },
-    { "name": "COGNITO_CLIENT_ID", "value": "<COGNITO_CLIENT_ID>" },
-    { "name": "ALLOWED_ORIGINS",   "value": "https://your-gateway-domain.com" },
-    { "name": "INTERNAL_API_KEY",  "value": "<INTERNAL_API_KEY>" }
+    { "name": "AWS_PUSH_SECRET_ARN", "value": "<AWS_PUSH_SECRET_ARN>" }
   ],
   "logConfiguration": {
     "logDriver": "awslogs",
@@ -305,7 +317,7 @@ If the service is migrated from an Auto Scaling Group to Amazon ECS (Fargate or 
 }
 ```
 
-> **Tip:** Do not embed plaintext secrets in the task definition `environment` array. Instead, store sensitive values (database credentials, API keys) in Secrets Manager or Parameter Store and reference them via the `secrets` array using `valueFrom`.
+> **Tip:** Keep the task definition `environment` array limited to bootstrap values such as region and secret ARNs. Store all runtime credentials/config in Secrets Manager (`AWS_SECRET_ARN`, `AWS_DB_SECRET_ARN`, `AWS_PUSH_SECRET_ARN`) rather than plaintext env vars.
 
 ### Task role
 

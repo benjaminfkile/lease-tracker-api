@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
 import { ApiError } from "../utils/ApiError";
+import { getAppConfigValue } from "../aws/getAppConfig";
 
 // ---------------------------------------------------------------------------
 // Types for Google Play Developer API (purchases.subscriptions.get)
@@ -38,7 +39,9 @@ function base64url(buf: Buffer | string): string {
 }
 
 async function getGoogleAccessToken(): Promise<string> {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const keyJson = await getAppConfigValue("GOOGLE_SERVICE_ACCOUNT_KEY", {
+    required: true,
+  });
   if (!keyJson) {
     throw new ApiError(500, "Google service account key is not configured");
   }

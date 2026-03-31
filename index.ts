@@ -22,6 +22,9 @@ async function start() {
     const appSecrets: IAPISecrets = await getAppSecrets();
     const dbSecrets: IDBSecrets = await getDBSecrets();
 
+    console.log("App Secrets:", appSecrets);
+    console.log("DB Secrets:", dbSecrets);
+
     app.set("secrets", appSecrets);
 
     const environment: TNodeEnviromnent = isLocal
