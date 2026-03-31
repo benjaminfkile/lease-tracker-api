@@ -1,5 +1,4 @@
-import swaggerUi from "swagger-ui-express";
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 
 const swaggerDocument: object = {
   openapi: "3.0.0",
@@ -888,10 +887,35 @@ const swaggerDocument: object = {
 };
 
 const swaggerRouter = Router();
-// setup must be registered before serve so it handles GET / directly.
-// If serve runs first, express.static redirects /api-docs → /api-docs/ using an
-// absolute path that strips the gateway prefix from the Location header.
-swaggerRouter.get("/", swaggerUi.setup(swaggerDocument));
-swaggerRouter.use(swaggerUi.serve);
+
+swaggerRouter.get("/spec.json", (_req: Request, res: Response) => {
+  res.json(swaggerDocument);
+});
+
+swaggerRouter.get("/", (_req: Request, res: Response) => {
+  res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <title>LeaseTracker API Docs</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = function () {
+        SwaggerUIBundle({
+          url: "spec.json",
+          dom_id: "#swagger-ui",
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+          layout: "BaseLayout",
+        });
+      };
+    </script>
+  </body>
+</html>`);
+});
 
 export default swaggerRouter;
