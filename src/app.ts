@@ -9,6 +9,7 @@ import subscriptionsRouter from "./routers/subscriptionsRouter";
 import internalRouter from "./routers/internalRouter";
 import { isLocal } from "./utils/isLocal";
 import { errorHandler } from "./middleware/errorHandler";
+import swaggerRouter from "./swagger";
 // import { getAppConfigValue } from "./aws/getAppConfig"; // Handled by gateway API
 
 const app: Express = express();
@@ -63,6 +64,10 @@ app.use("/api/users", usersRouter);
 app.use("/api/leases", leasesRouter);
 app.use("/api/subscriptions", subscriptionsRouter);
 app.use("/api/internal", internalRouter);
+
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api-docs", swaggerRouter);
+}
 
 app.use(errorHandler);
 
