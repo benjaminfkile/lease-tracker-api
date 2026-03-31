@@ -888,7 +888,10 @@ const swaggerDocument: object = {
 };
 
 const swaggerRouter = Router();
-swaggerRouter.use("/", swaggerUi.serve);
+// setup must be registered before serve so it handles GET / directly.
+// If serve runs first, express.static redirects /api-docs → /api-docs/ using an
+// absolute path that strips the gateway prefix from the Location header.
 swaggerRouter.get("/", swaggerUi.setup(swaggerDocument));
+swaggerRouter.use(swaggerUi.serve);
 
 export default swaggerRouter;
