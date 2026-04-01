@@ -4,7 +4,7 @@ import {
   PublishCommand,
 } from "@aws-sdk/client-sns";
 import { getUserById } from "../db/users";
-import { getNotificationSecrets } from "../aws/getNotificationSecrets";
+import { getAppSecrets } from "../aws/getAppSecrets";
 
 // ---------------------------------------------------------------------------
 // Singleton SNS client
@@ -115,11 +115,11 @@ export async function send(
     return;
   }
 
-  const secrets = await getNotificationSecrets();
+  const secrets = await getAppSecrets();
   const platformArn =
     parsed.platform === "apns"
-      ? secrets.sns_apns_platform_arn
-      : secrets.sns_fcm_platform_arn;
+      ? secrets.SNS_APNS_PLATFORM_ARN
+      : secrets.SNS_FCM_PLATFORM_ARN;
 
   const client = getSnsClient();
 

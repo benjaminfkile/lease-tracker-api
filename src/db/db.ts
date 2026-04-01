@@ -1,5 +1,5 @@
 import knex, { Knex } from "knex";
-import { IAPISecrets, IDBSecrets } from "../interfaces";
+import { IAppSecrets, IDBSecrets } from "../interfaces";
 import { TNodeEnviromnent } from "../types";
 import health from "./health";
 
@@ -7,26 +7,26 @@ let db: Knex | null = null;
 
 export async function initDb(
   dbSecrets: IDBSecrets,
-  appSecrets: IAPISecrets,
+  appSecrets: IAppSecrets,
   environmnet: TNodeEnviromnent
 ): Promise<Knex> {
   if (db) return db;
 
-  const { username, password, host, /*proxy_url,*/ port } = dbSecrets;
+  const { USERNAME, PASSWORD, HOST, /*PROXY_URL,*/ PORT } = dbSecrets;
 
-  const { db_name } = appSecrets;
+  const { DB_NAME } = appSecrets;
 
-  // const dbUrl = environmnet !== "local" ? proxy_url : host;
-  const dbUrl = host; //proxy is currently disbaled, its exensive AF
+  // const dbUrl = environmnet !== "local" ? PROXY_URL : HOST;
+  const dbUrl = HOST; //proxy is currently disbaled, its exensive AF
 
   db = knex({
     client: "pg",
     connection: {
       host: dbUrl,
-      user: username,
-      password: password,
-      database: db_name,
-      port: port,
+      user: USERNAME,
+      password: PASSWORD,
+      database: DB_NAME,
+      port: PORT,
       ssl: { rejectUnauthorized: false },
     },
   });

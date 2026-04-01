@@ -3,7 +3,7 @@ import http from "http";
 import { initDb } from "./src/db/db";
 import { getAppSecrets } from "./src/aws/getAppSecrets";
 import { getDBSecrets } from "./src/aws/getDBSecrets";
-import { IAPISecrets, IDBSecrets } from "./src/interfaces";
+import { IAppSecrets, IDBSecrets } from "./src/interfaces";
 import app from "./src/app";
 import morgan from "morgan";
 import { TNodeEnviromnent } from "./src/types";
@@ -17,9 +17,7 @@ process.on("uncaughtException", function (err) {
 
 async function start() {
   try {
-    const isLocal = process.env.IS_LOCAL === "true";
-
-    const appSecrets: IAPISecrets = await getAppSecrets();
+    const appSecrets: IAppSecrets = await getAppSecrets();
     const dbSecrets: IDBSecrets = await getDBSecrets();
 
     // console.log("App Secrets:", appSecrets);
@@ -27,13 +25,13 @@ async function start() {
 
     app.set("secrets", appSecrets);
 
-    const environment: TNodeEnviromnent = isLocal
+    const environment: TNodeEnviromnent = appSecrets.NODE_ENV === "local"
       ? "local"
-      : appSecrets.node_env || "local";
+      : (appSecrets.NODE_ENV as TNodeEnviromnent) || "local";
     const morganOption = environment === "production" ? "tiny" : "common";
     app.use(morgan(morganOption));
 
-    const port = parseInt(appSecrets.port) || 3005;
+    const port = parseInt(appSecrets.PORT) || 3005;
     const server = http.createServer({}, app);
 
     const db = await initDb(dbSecrets, appSecrets, environment);
