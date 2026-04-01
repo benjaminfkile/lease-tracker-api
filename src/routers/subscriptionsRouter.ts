@@ -17,7 +17,7 @@ import {
   handleGoogleNotification,
 } from "../db/subscriptions";
 import { ApiError } from "../utils/ApiError";
-import { getAppConfigValue } from "../aws/getAppConfig";
+import { getAppSecrets } from "../aws/getAppSecrets";
 
 const subscriptionsRouter = express.Router();
 
@@ -95,9 +95,7 @@ subscriptionsRouter.post(
     try {
       const { product_id, purchase_token } = req.body as VerifyGoogleReceiptInput;
 
-      const packageName = await getAppConfigValue("GOOGLE_PLAY_PACKAGE_NAME", {
-        required: true,
-      });
+      const { GOOGLE_PLAY_PACKAGE_NAME: packageName } = await getAppSecrets();
       if (!packageName) {
         throw new ApiError(500, "Google Play package name is not configured");
       }
@@ -206,7 +204,7 @@ subscriptionsRouter.post(
 
         const sn = notification.subscriptionNotification;
         if (sn?.purchaseToken && sn.subscriptionId) {
-          const packageName = await getAppConfigValue("GOOGLE_PLAY_PACKAGE_NAME");
+          const { GOOGLE_PLAY_PACKAGE_NAME: packageName } = await getAppSecrets();
           if (packageName) {
             const verifyResult = await verifyGooglePurchase(
               packageName,

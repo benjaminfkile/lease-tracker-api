@@ -1,6 +1,6 @@
 import { verify, X509Certificate } from "crypto";
 import { ApiError } from "../utils/ApiError";
-import { getAppConfigValue } from "../aws/getAppConfig";
+import { getAppSecrets } from "../aws/getAppSecrets";
 
 // ---------------------------------------------------------------------------
 // Apple notification payload types (App Store Server Notifications v2)
@@ -77,9 +77,7 @@ function decodeJWSPayloadUnsafe(jws: string): unknown {
  * and set its PEM content in the APPLE_ROOT_CA_PEM environment variable.
  */
 async function getAppleRootCaPem(): Promise<string> {
-  const pem = await getAppConfigValue("APPLE_ROOT_CA_PEM", {
-    required: true,
-  });
+  const { APPLE_ROOT_CA_PEM: pem } = await getAppSecrets();
   if (!pem) {
     throw new ApiError(
       500,
