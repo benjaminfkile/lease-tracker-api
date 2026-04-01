@@ -1,19 +1,29 @@
-import { TNodeEnviromnent, TLeaseRole } from "./types";
+import { TLeaseRole } from "./types";
 
-export interface IAPISecrets {
-  db_name: string;
-  node_env: TNodeEnviromnent;
-  port: string;
+export interface IAppSecrets {
+  DB_NAME: string;
+  NODE_ENV: string;
+  PORT: string;
+  COGNITO_USER_POOL_ID: string;
+  COGNITO_CLIENT_ID: string;
+  INTERNAL_API_KEY: string;
+  GOOGLE_PLAY_PACKAGE_NAME: string;
+  GOOGLE_SERVICE_ACCOUNT_KEY: string;
+  APPLE_SHARED_SECRET: string;
+  APPLE_ROOT_CA_PEM: string;
+  ALLOWED_ORIGINS: string;
+  SNS_APNS_PLATFORM_ARN: string;
+  SNS_FCM_PLATFORM_ARN: string;
 }
 
 export interface IDBSecrets {
-  username: string
-  password: string
-  engine: "postgres"
-  host: string
-  proxy_url: string
-  port: 5432
-  dbInstanceIdentifier: string
+  USERNAME: string;
+  PASSWORD: string;
+  ENGINE: 'postgres';
+  HOST: string;
+  PROXY_URL: string;
+  PORT: 5432;
+  DB_INSTANCE_IDENTIFIER: string;
 }
 
 export interface IDBHealth {
@@ -148,10 +158,6 @@ export interface ISubscription {
   updated_at: Date;
 }
 
-export interface INotificationSecrets {
-  sns_apns_platform_arn: string;
-  sns_fcm_platform_arn: string;
-}
 
 export interface ILeaseSummary {
   miles_driven: number;

@@ -8,8 +8,8 @@ jest.mock("../src/db/users", () => ({
   getUserById: jest.fn(),
 }));
 
-jest.mock("../src/aws/getNotificationSecrets", () => ({
-  getNotificationSecrets: jest.fn(),
+jest.mock("../src/aws/getAppSecrets", () => ({
+  getAppSecrets: jest.fn(),
 }));
 
 // Mock @aws-sdk/client-sns so no real AWS calls are made.
@@ -28,7 +28,7 @@ jest.mock("@aws-sdk/client-sns", () => ({
 
 // Import after mocks are in place.
 import { getUserById } from "../src/db/users";
-import { getNotificationSecrets } from "../src/aws/getNotificationSecrets";
+import { getAppSecrets } from "../src/aws/getAppSecrets";
 import {
   CreatePlatformEndpointCommand,
   PublishCommand,
@@ -40,7 +40,7 @@ import {
 } from "../src/services/notificationService";
 
 const mockGetUserById = getUserById as jest.Mock;
-const mockGetNotificationSecrets = getNotificationSecrets as jest.Mock;
+const mockGetAppSecrets = getAppSecrets as jest.Mock;
 const MockCreatePlatformEndpointCommand =
   CreatePlatformEndpointCommand as unknown as jest.Mock;
 const MockPublishCommand = PublishCommand as unknown as jest.Mock;
@@ -62,8 +62,8 @@ const fakeUser = (push_token: string | null): IUser => ({
 });
 
 const fakeSecrets = {
-  sns_apns_platform_arn: "arn:aws:sns:us-east-1:123456789012:app/APNS/MyApp",
-  sns_fcm_platform_arn: "arn:aws:sns:us-east-1:123456789012:app/GCM/MyApp",
+  SNS_APNS_PLATFORM_ARN: "arn:aws:sns:us-east-1:123456789012:app/APNS/MyApp",
+  SNS_FCM_PLATFORM_ARN: "arn:aws:sns:us-east-1:123456789012:app/GCM/MyApp",
 };
 
 const apnsEndpointArn = "arn:aws:sns:us-east-1:123456789012:endpoint/APNS/MyApp/abc123";
@@ -163,7 +163,7 @@ describe("send", () => {
 
     await send("user-1", "Title", "Body");
 
-    expect(mockGetNotificationSecrets).not.toHaveBeenCalled();
+    expect(mockGetAppSecrets).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });
 
@@ -172,7 +172,7 @@ describe("send", () => {
 
     await send("user-1", "Title", "Body");
 
-    expect(mockGetNotificationSecrets).not.toHaveBeenCalled();
+    expect(mockGetAppSecrets).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
   });
 
@@ -191,7 +191,7 @@ describe("send", () => {
 
   it("dispatches to APNs endpoint for an 'apns:' prefixed token", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("apns:devicetoken64hex"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend
       .mockResolvedValueOnce({ EndpointArn: apnsEndpointArn })
       .mockResolvedValueOnce({ MessageId: "msg-1" });
@@ -199,7 +199,7 @@ describe("send", () => {
     await send("user-1", "Hello", "World");
 
     expect(MockCreatePlatformEndpointCommand).toHaveBeenCalledWith({
-      PlatformApplicationArn: fakeSecrets.sns_apns_platform_arn,
+      PlatformApplicationArn: fakeSecrets.SNS_APNS_PLATFORM_ARN,
       Token: "devicetoken64hex",
     });
     expect(MockPublishCommand).toHaveBeenCalledWith({
@@ -212,7 +212,7 @@ describe("send", () => {
 
   it("dispatches to FCM endpoint for a 'fcm:' prefixed token", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("fcm:APA91bHPregistrationId"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend
       .mockResolvedValueOnce({ EndpointArn: fcmEndpointArn })
       .mockResolvedValueOnce({ MessageId: "msg-2" });
@@ -220,7 +220,7 @@ describe("send", () => {
     await send("user-1", "Alert", "Check your lease");
 
     expect(MockCreatePlatformEndpointCommand).toHaveBeenCalledWith({
-      PlatformApplicationArn: fakeSecrets.sns_fcm_platform_arn,
+      PlatformApplicationArn: fakeSecrets.SNS_FCM_PLATFORM_ARN,
       Token: "APA91bHPregistrationId",
     });
     expect(MockPublishCommand).toHaveBeenCalledWith({
@@ -232,7 +232,7 @@ describe("send", () => {
 
   it("passes extra data to the SNS message when provided", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("apns:tok"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend
       .mockResolvedValueOnce({ EndpointArn: apnsEndpointArn })
       .mockResolvedValueOnce({});
@@ -255,19 +255,19 @@ describe("send", () => {
 
   it("fetches notification secrets when dispatch is needed", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("apns:tok"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend
       .mockResolvedValueOnce({ EndpointArn: apnsEndpointArn })
       .mockResolvedValueOnce({});
 
     await send("user-1", "T", "B");
 
-    expect(mockGetNotificationSecrets).toHaveBeenCalledTimes(1);
+    expect(mockGetAppSecrets).toHaveBeenCalledTimes(1);
   });
 
   it("throws when SNS CreatePlatformEndpoint does not return an EndpointArn", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("apns:tok"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend.mockResolvedValueOnce({ EndpointArn: undefined });
 
     await expect(send("user-1", "T", "B")).rejects.toThrow(
@@ -281,9 +281,9 @@ describe("send", () => {
     await expect(send("user-1", "T", "B")).rejects.toThrow("DB failure");
   });
 
-  it("propagates errors thrown by getNotificationSecrets", async () => {
+  it("propagates errors thrown by getAppSecrets", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("fcm:token"));
-    mockGetNotificationSecrets.mockRejectedValue(
+    mockGetAppSecrets.mockRejectedValue(
       new Error("Secrets Manager unavailable")
     );
 
@@ -294,7 +294,7 @@ describe("send", () => {
 
   it("propagates errors thrown by SNS publish", async () => {
     mockGetUserById.mockResolvedValue(fakeUser("fcm:token"));
-    mockGetNotificationSecrets.mockResolvedValue(fakeSecrets);
+    mockGetAppSecrets.mockResolvedValue(fakeSecrets);
     mockSend
       .mockResolvedValueOnce({ EndpointArn: fcmEndpointArn })
       .mockRejectedValueOnce(new Error("SNS publish error"));

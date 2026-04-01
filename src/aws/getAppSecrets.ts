@@ -1,11 +1,11 @@
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager"
-import { IAPISecrets } from "../interfaces"
+import { IAppSecrets } from "../interfaces"
 
-let cachedAppSecrets: IAPISecrets | undefined;
-let appSecretsPromise: Promise<IAPISecrets> | undefined;
+let cachedAppSecrets: IAppSecrets | undefined;
+let appSecretsPromise: Promise<IAppSecrets> | undefined;
 
 // Fetch and parse secrets from AWS
-export async function getAppSecrets(): Promise<IAPISecrets> {
+export async function getAppSecrets(): Promise<IAppSecrets> {
   if (cachedAppSecrets) {
     return cachedAppSecrets;
   }
@@ -29,7 +29,7 @@ export async function getAppSecrets(): Promise<IAPISecrets> {
     throw new Error("SecretString is empty in Secrets Manager response")
   }
 
-    cachedAppSecrets = JSON.parse(response.SecretString) as IAPISecrets
+    cachedAppSecrets = JSON.parse(response.SecretString) as IAppSecrets
     return cachedAppSecrets
   })();
 
