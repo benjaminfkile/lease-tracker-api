@@ -1,32 +1,22 @@
 describe("cognitoVerifier", () => {
-  const originalUserPoolId = process.env.COGNITO_USER_POOL_ID;
-  const originalClientId = process.env.COGNITO_CLIENT_ID;
-
-  afterEach(() => {
-    if (originalUserPoolId === undefined) {
-      delete process.env.COGNITO_USER_POOL_ID;
-    } else {
-      process.env.COGNITO_USER_POOL_ID = originalUserPoolId;
-    }
-    if (originalClientId === undefined) {
-      delete process.env.COGNITO_CLIENT_ID;
-    } else {
-      process.env.COGNITO_CLIENT_ID = originalClientId;
-    }
-  });
-
-  it("calls CognitoJwtVerifier.create with env var values", () => {
-    process.env.COGNITO_USER_POOL_ID = "us-east-1_TestPool";
-    process.env.COGNITO_CLIENT_ID = "testClientId123";
-
-    const mockCreate = jest.fn().mockReturnValue({ verify: jest.fn() });
+  it("calls CognitoJwtVerifier.create with values from getAppSecrets", async () => {
+    const mockCreate = jest.fn().mockReturnValue({ verify: jest.fn().mockResolvedValue({}) });
+    let cognitoVerifier: { verify: (token: string) => Promise<unknown> } | undefined;
 
     jest.isolateModules(() => {
+      jest.doMock("../src/aws/getAppSecrets", () => ({
+        getAppSecrets: jest.fn().mockResolvedValue({
+          COGNITO_USER_POOL_ID: "us-east-1_TestPool",
+          COGNITO_CLIENT_ID: "testClientId123",
+        }),
+      }));
       jest.doMock("aws-jwt-verify", () => ({
         CognitoJwtVerifier: { create: mockCreate },
       }));
-      require("../src/auth/cognitoVerifier");
+      cognitoVerifier = require("../src/auth/cognitoVerifier").default;
     });
+
+    await cognitoVerifier!.verify("fake-token");
 
     expect(mockCreate).toHaveBeenCalledWith({
       userPoolId: "us-east-1_TestPool",
@@ -35,53 +25,69 @@ describe("cognitoVerifier", () => {
     });
   });
 
-  it("exports the verifier instance returned by CognitoJwtVerifier.create", () => {
-    process.env.COGNITO_USER_POOL_ID = "us-east-1_TestPool";
-    process.env.COGNITO_CLIENT_ID = "testClientId123";
-
-    const mockVerifier = { verify: jest.fn() };
-    const mockCreate = jest.fn().mockReturnValue(mockVerifier);
-    let verifier: unknown;
+  it("verify() delegates to the verifier returned by CognitoJwtVerifier.create", async () => {
+    const mockVerify = jest.fn().mockResolvedValue({ sub: "user-123" });
+    const mockCreate = jest.fn().mockReturnValue({ verify: mockVerify });
+    let cognitoVerifier: { verify: (token: string) => Promise<unknown> } | undefined;
 
     jest.isolateModules(() => {
+      jest.doMock("../src/aws/getAppSecrets", () => ({
+        getAppSecrets: jest.fn().mockResolvedValue({
+          COGNITO_USER_POOL_ID: "us-east-1_TestPool",
+          COGNITO_CLIENT_ID: "testClientId123",
+        }),
+      }));
       jest.doMock("aws-jwt-verify", () => ({
         CognitoJwtVerifier: { create: mockCreate },
       }));
-      verifier = require("../src/auth/cognitoVerifier").default;
+      cognitoVerifier = require("../src/auth/cognitoVerifier").default;
     });
 
-    expect(verifier).toBe(mockVerifier);
+    const result = await cognitoVerifier!.verify("test-token");
+
+    expect(mockVerify).toHaveBeenCalledWith("test-token");
+    expect(result).toEqual({ sub: "user-123" });
   });
 
-  it("falls back to empty string when env vars are not set", () => {
-    delete process.env.COGNITO_USER_POOL_ID;
-    delete process.env.COGNITO_CLIENT_ID;
+  it("throws when COGNITO_USER_POOL_ID is missing from secrets", async () => {
+    let cognitoVerifier: { verify: (token: string) => Promise<unknown> } | undefined;
 
-    const mockCreate = jest.fn().mockReturnValue({ verify: jest.fn() });
+    jest.isolateModules(() => {
+      jest.doMock("../src/aws/getAppSecrets", () => ({
+        getAppSecrets: jest.fn().mockResolvedValue({
+          COGNITO_USER_POOL_ID: "",
+          COGNITO_CLIENT_ID: "testClientId123",
+        }),
+      }));
+      jest.doMock("aws-jwt-verify", () => ({
+        CognitoJwtVerifier: { create: jest.fn() },
+      }));
+      cognitoVerifier = require("../src/auth/cognitoVerifier").default;
+    });
 
-    expect(() => {
-      jest.isolateModules(() => {
-        jest.doMock("aws-jwt-verify", () => ({
-          CognitoJwtVerifier: { create: mockCreate },
-        }));
-        require("../src/auth/cognitoVerifier");
-      });
-    }).toThrow("Missing required environment variable: COGNITO_USER_POOL_ID");
+    await expect(cognitoVerifier!.verify("fake-token")).rejects.toThrow(
+      "Missing required configuration: COGNITO_USER_POOL_ID"
+    );
   });
 
-  it("throws when only COGNITO_CLIENT_ID is missing", () => {
-    process.env.COGNITO_USER_POOL_ID = "us-east-1_TestPool";
-    delete process.env.COGNITO_CLIENT_ID;
+  it("throws when COGNITO_CLIENT_ID is missing from secrets", async () => {
+    let cognitoVerifier: { verify: (token: string) => Promise<unknown> } | undefined;
 
-    const mockCreate = jest.fn().mockReturnValue({ verify: jest.fn() });
+    jest.isolateModules(() => {
+      jest.doMock("../src/aws/getAppSecrets", () => ({
+        getAppSecrets: jest.fn().mockResolvedValue({
+          COGNITO_USER_POOL_ID: "us-east-1_TestPool",
+          COGNITO_CLIENT_ID: "",
+        }),
+      }));
+      jest.doMock("aws-jwt-verify", () => ({
+        CognitoJwtVerifier: { create: jest.fn() },
+      }));
+      cognitoVerifier = require("../src/auth/cognitoVerifier").default;
+    });
 
-    expect(() => {
-      jest.isolateModules(() => {
-        jest.doMock("aws-jwt-verify", () => ({
-          CognitoJwtVerifier: { create: mockCreate },
-        }));
-        require("../src/auth/cognitoVerifier");
-      });
-    }).toThrow("Missing required environment variable: COGNITO_CLIENT_ID");
+    await expect(cognitoVerifier!.verify("fake-token")).rejects.toThrow(
+      "Missing required configuration: COGNITO_CLIENT_ID"
+    );
   });
 });

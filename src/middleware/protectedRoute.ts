@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { timingSafeEqual } from "crypto";
 import { ApiError } from "../utils/ApiError";
-import { getAppConfigValue } from "../aws/getAppConfig";
+import { getAppSecrets } from "../aws/getAppSecrets";
 
 /**
  * Middleware that protects internal routes using a shared secret.
@@ -19,9 +19,8 @@ export function protectedRoute(
   next: NextFunction
 ): Promise<void> {
   return (async () => {
-    const expectedKey = await getAppConfigValue("INTERNAL_API_KEY", {
-      required: true,
-    });
+    const secrets = await getAppSecrets();
+    const expectedKey = secrets.INTERNAL_API_KEY;
 
     if (!expectedKey) {
       next(new ApiError(500, "Internal API key is not configured"));

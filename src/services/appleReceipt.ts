@@ -1,5 +1,5 @@
 import { ApiError } from "../utils/ApiError";
-import { getAppConfigValue } from "../aws/getAppConfig";
+import { getAppSecrets } from "../aws/getAppSecrets";
 
 // ---------------------------------------------------------------------------
 // Types for Apple's verifyReceipt API
@@ -42,9 +42,7 @@ async function callAppleVerifyReceipt(
     ? "https://sandbox.itunes.apple.com/verifyReceipt"
     : "https://buy.itunes.apple.com/verifyReceipt";
 
-  const password = await getAppConfigValue("APPLE_SHARED_SECRET", {
-    required: true,
-  });
+  const { APPLE_SHARED_SECRET: password } = await getAppSecrets();
 
   if (!password) {
     throw new ApiError(500, "Apple shared secret is not configured");
