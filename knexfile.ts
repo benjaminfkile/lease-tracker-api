@@ -1,63 +1,27 @@
-import dotenv from "dotenv";
 import type { Knex } from "knex";
+import { getDBSecrets } from "./src/aws/getDBSecrets";
+import { getAppSecrets } from "./src/aws/getAppSecrets";
 
-dotenv.config();
+const migrations = { directory: "./src/db/migrations" };
+const seeds = { directory: "./src/db/seeds" };
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
-
-function buildConnection(): Knex.PgConnectionConfig {
+async function buildConnection(): Promise<Knex.PgConnectionConfig> {
+  const db = await getDBSecrets();
+  const app = await getAppSecrets();
   return {
-    host: requireEnv("DB_HOST"),
-    port: Number(process.env.DB_PORT) || 5432,
-    user: requireEnv("DB_USER"),
-    password: requireEnv("DB_PASSWORD"),
-    database: requireEnv("DB_NAME"),
+    host: db.HOST,
+    port: db.PORT,
+    user: db.USERNAME,
+    password: db.PASSWORD,
+    database: app.DB_NAME,
+    ssl: { rejectUnauthorized: false },
   };
 }
 
-const migrations = {
-  directory: "./src/db/migrations",
-};
-
-const seeds = {
-  directory: "./src/db/seeds",
-};
-
 const config: Record<string, Knex.Config> = {
-  development: {
-    client: "pg",
-    connection: () => ({
-      ...buildConnection(),
-      ssl: { rejectUnauthorized: false },
-    }),
-    migrations,
-    seeds,
-  },
-  test: {
-    client: "pg",
-    connection: () => ({
-      ...buildConnection(),
-      ssl: { rejectUnauthorized: false },
-    }),
-    migrations,
-    seeds,
-  },
-  production: {
-    client: "pg",
-    connection: () => ({
-      ...buildConnection(),
-      // Self-signed RDS cert — matches the pattern used by the existing db client
-      ssl: { rejectUnauthorized: false },
-    }),
-    migrations,
-    seeds,
-  },
+  development: { client: "pg", connection: buildConnection, migrations, seeds },
+  test: { client: "pg", connection: buildConnection, migrations, seeds },
+  production: { client: "pg", connection: buildConnection, migrations, seeds },
 };
 
 export default config;

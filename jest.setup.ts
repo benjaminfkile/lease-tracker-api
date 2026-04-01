@@ -2,10 +2,8 @@ import knex, { Knex } from "knex";
 import knexConfig from "./knexfile";
 
 const isDbConfigured = !!(
-  process.env.DB_HOST &&
-  process.env.DB_USER &&
-  process.env.DB_PASSWORD &&
-  process.env.DB_NAME
+  process.env.AWS_SECRET_ARN &&
+  process.env.AWS_DB_SECRET_ARN
 );
 
 let db: Knex | undefined;
