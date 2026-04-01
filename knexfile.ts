@@ -41,7 +41,10 @@ const config: Record<string, Knex.Config> = {
   },
   test: {
     client: "pg",
-    connection: buildConnection,
+    connection: () => ({
+      ...buildConnection(),
+      ssl: { rejectUnauthorized: false },
+    }),
     migrations,
     seeds,
   },
