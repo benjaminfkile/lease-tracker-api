@@ -56,7 +56,7 @@ jobs:
       - name: Assign to Copilot
         if: steps.find-next.outputs.found == 'true' && steps.find-next.outputs.is_manual == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           gh issue edit ${{ steps.find-next.outputs.issue_number }} \
             --add-assignee @copilot \
