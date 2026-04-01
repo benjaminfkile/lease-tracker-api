@@ -19,11 +19,8 @@ mileage analytics, push notifications, and Apple/Google subscriptions.
 - `main` is production-only and is never a valid PR target under any circumstances.
 
 ## Standing Rules
-- All existing unit and integration tests must continue to pass.
-- New tests must be added for all new and modified code, matching the style of existing test files, achieving 90–95%+ coverage.
-- Run `npm run build` after completing changes to confirm zero TypeScript errors.
-- Run `npm test` after completing changes to confirm all tests pass.
-- Never hardcode secrets, credentials, or environment-specific values — use environment variables or AWS Secrets Manager references only.
+- Run `npm run build` after completing changes to confirm zero TypeScript errors. **Do not run tests** — the test suite is being updated separately and is not required to pass right now.
+- Never hardcode secrets, credentials, or environment-specific values — use AWS Secrets Manager only. The only allowed `process.env` reads are `AWS_REGION`, `AWS_SECRET_ARN`, and `AWS_DB_SECRET_ARN`.
 - The API must work standalone (direct EC2) **and** behind `bk-gateway-api` — do not introduce any gateway dependency.
 - Knex migrations must be non-destructive and include both `up` and `down` functions.
 - All protected routes must use the `requireAuth` middleware. Never skip auth on a route that reads or writes user data.
@@ -61,6 +58,9 @@ mileage analytics, push notifications, and Apple/Google subscriptions.
 | 14 | 12 | Advanced Analytics |
 | 15 | 15 | Testing |
 | 16 | 16 | Documentation & Deployment |
+
+## PR Naming
+The PR **branch name and title must both start with the issue number**, e.g. branch `161-rename-iappsecrets` and title `161 Rename IAPISecrets to IAppSecrets`. This is required for the automation workflow.
 
 ## PR Description Format
 The PR body **must** include `Closes #<issue_number>` (e.g. `Closes #42`) so the issue is automatically closed when the PR is merged.
