@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { ApiError } from "../utils/ApiError";
-import { isLocal } from "../utils/isLocal";
 
 interface PgError extends Error {
   code: string;
@@ -56,8 +55,9 @@ export function errorHandler(
     return;
   }
 
-  const message =
-    isLocal() && err instanceof Error ? err.message : "Internal Server Error";
+  const secrets = req.app.get("secrets") as { NODE_ENV?: string } | undefined;
+  const isLocalEnv = secrets?.NODE_ENV === "local";
+  const message = isLocalEnv && err instanceof Error ? err.message : "Internal Server Error";
 
   res.status(500).json({
     error: true,
