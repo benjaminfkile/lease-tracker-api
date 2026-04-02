@@ -20,8 +20,8 @@ async function start() {
     const appSecrets: IAppSecrets = await getAppSecrets();
     const dbSecrets: IDBSecrets = await getDBSecrets();
 
-    // console.log("App Secrets:", appSecrets);
-    // console.log("DB Secrets:", dbSecrets);
+    console.log("App Secrets:", appSecrets);
+    console.log("DB Secrets:", dbSecrets);
 
     app.set("secrets", appSecrets);
 
