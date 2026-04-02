@@ -41,7 +41,6 @@ Copy `.env.example` to `.env` and fill in the values before starting the server.
 | `PORT` | No | HTTP port the server listens on. Defaults to `3005`. |
 | `NODE_ENV` | Yes | Runtime environment (`development`, `test`, or `production`). |
 | `IS_LOCAL` | No | Set to `true` to enable local mode (reads secrets from env vars instead of AWS Secrets Manager, opens CORS, enables verbose logging). |
-| `ALLOWED_ORIGINS` | No* | Comma-separated list of allowed CORS origins in non-local mode. *Required when `IS_LOCAL` is not `true`. |
 | `AWS_REGION` | Yes | AWS region for all AWS SDK calls (e.g. `us-east-1`). |
 | `AWS_SECRET_ARN` | No* | ARN of the AWS Secrets Manager secret that holds app-level configuration. *Required in non-local mode. |
 | `AWS_DB_SECRET_ARN` | No* | ARN of the AWS Secrets Manager secret that holds database credentials. *Required in non-local mode. |
@@ -178,11 +177,6 @@ When deployed behind **bk-gateway-api**, the lease-tracker-api runs on its own p
 | Standalone / direct EC2 | **3005** | Access the API directly at `http://<ec2-host>:3005` |
 | Behind bk-gateway-api | **4005** | Gateway listens on 4005 and forwards to the API on 3005 internally |
 
-Set `ALLOWED_ORIGINS` to include the gateway's public domain so CORS allows requests originating from the gateway or the mobile app:
-
-```
-ALLOWED_ORIGINS=https://your-gateway-domain.com,https://your-other-allowed-origin.com
-```
 
 The API itself is gateway-agnostic — it does not require or detect the presence of a gateway. Both deployment modes use the same Docker image and the same environment variable configuration.
 

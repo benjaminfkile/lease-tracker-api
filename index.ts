@@ -34,7 +34,7 @@ async function start() {
     const port = parseInt(appSecrets.PORT) || 3005;
     const server = http.createServer({}, app);
 
-    const db = await initDb(dbSecrets, appSecrets, environment);
+    const db = await initDb(dbSecrets, appSecrets, /*environment*/);
 
     async function shutdown(signal: string) {
       console.log(`Received ${signal}, shutting down gracefully`);

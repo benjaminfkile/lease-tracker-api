@@ -9,10 +9,9 @@ async function buildConnection(): Promise<Knex.PgConnectionConfig> {
   const db = await getDBSecrets();
   const app = await getAppSecrets();
   return {
-    host: db.HOST,
-    port: db.PORT,
-    user: db.USERNAME,
-    password: db.PASSWORD,
+    host: app.DB_HOST,
+    user: db.DB_USERNAME,
+    password: db.DB_PASSWORD,
     database: app.DB_NAME,
     ssl: { rejectUnauthorized: false },
   };

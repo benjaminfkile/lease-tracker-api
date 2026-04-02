@@ -35,7 +35,6 @@ Holds application-level runtime configuration.
 | `db_name` | `string` | PostgreSQL database name |
 | `node_env` | `"development"` \| `"production"` | Runtime environment |
 | `port` | `string` | HTTP port the server listens on (e.g. `"3005"`) |
-| `allowed_origins` | `string` | Comma-separated browser origins allowed by CORS |
 | `cognito_user_pool_id` | `string` | Cognito user pool ID used for JWT verification |
 | `cognito_client_id` | `string` | Cognito app client ID used for JWT verification |
 | `internal_api_key` | `string` | Shared key required by internal protected endpoints |
@@ -50,7 +49,6 @@ Holds application-level runtime configuration.
   "db_name": "leasetracker",
   "node_env": "production",
   "port": "3005",
-  "allowed_origins": "https://gateway.example.com,https://app.example.com",
   "cognito_user_pool_id": "us-east-1_jDeByVRDz",
   "cognito_client_id": "4qjv485gtrrl4db41sme3epr17",
   "internal_api_key": "replace-with-strong-random-value",

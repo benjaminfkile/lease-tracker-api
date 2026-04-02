@@ -1,29 +1,25 @@
 import { TLeaseRole } from "./types";
 
 export interface IAppSecrets {
-  DB_NAME: string;
-  NODE_ENV: string;
-  PORT: string;
-  COGNITO_USER_POOL_ID: string;
-  COGNITO_CLIENT_ID: string;
-  INTERNAL_API_KEY: string;
-  GOOGLE_PLAY_PACKAGE_NAME: string;
-  GOOGLE_SERVICE_ACCOUNT_KEY: string;
-  APPLE_SHARED_SECRET: string;
-  APPLE_ROOT_CA_PEM: string;
-  ALLOWED_ORIGINS: string;
-  SNS_APNS_PLATFORM_ARN: string;
-  SNS_FCM_PLATFORM_ARN: string;
+  DB_NAME: string;//✅
+  DB_HOST: string//✅
+  DB_PROXY_URL: string//✅
+  NODE_ENV: string;//✅
+  PORT: string;//✅
+  COGNITO_USER_POOL_ID: string;//✅
+  COGNITO_CLIENT_ID: string;//✅
+  INTERNAL_API_KEY: string;//✅
+  GOOGLE_PLAY_PACKAGE_NAME: string;//!!❌
+  GOOGLE_SERVICE_ACCOUNT_KEY: string;//✅
+  APPLE_SHARED_SECRET: string;//!!❌
+  APPLE_ROOT_CA_PEM: string;//!❌
+  SNS_APNS_PLATFORM_ARN: string;//!!❌
+  SNS_FCM_PLATFORM_ARN: string;//!!❌
 }
 
 export interface IDBSecrets {
-  USERNAME: string;
-  PASSWORD: string;
-  ENGINE: 'postgres';
-  HOST: string;
-  PROXY_URL: string;
-  PORT: 5432;
-  DB_INSTANCE_IDENTIFIER: string;
+  DB_USERNAME: string;
+  DB_PASSWORD: string;
 }
 
 export interface IDBHealth {
