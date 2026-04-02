@@ -36,6 +36,10 @@ jest.mock("../src/db/subscriptions", () => ({
   handleGoogleNotification: jest.fn(),
 }));
 
+jest.mock("../src/aws/getAppSecrets", () => ({
+  getAppSecrets: jest.fn(),
+}));
+
 // Import after mocks are in place.
 import cognitoVerifier from "../src/auth/cognitoVerifier";
 import { upsertUser } from "../src/db/users";
@@ -49,8 +53,10 @@ import {
   handleGoogleNotification,
 } from "../src/db/subscriptions";
 import subscriptionsRouter from "../src/routers/subscriptionsRouter";
+import { getAppSecrets } from "../src/aws/getAppSecrets";
 
 const mockVerify = cognitoVerifier.verify as jest.Mock;
+const mockGetAppSecrets = getAppSecrets as jest.Mock;
 const mockUpsertUser = upsertUser as jest.Mock;
 const mockVerifyAppleReceipt = verifyAppleReceipt as jest.Mock;
 const mockVerifyAppleSignedPayload = verifyAppleSignedPayload as jest.Mock;
@@ -367,15 +373,9 @@ describe("POST /api/subscriptions/apple/verify", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/subscriptions/google/verify", () => {
-  const OLD_ENV = process.env;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...OLD_ENV, GOOGLE_PLAY_PACKAGE_NAME: "com.example.app" };
-  });
-
-  afterEach(() => {
-    process.env = OLD_ENV;
+    mockGetAppSecrets.mockResolvedValue({ GOOGLE_PLAY_PACKAGE_NAME: "com.example.app" });
   });
 
   it("returns 401 when Authorization header is absent", async () => {
@@ -912,11 +912,7 @@ describe("POST /api/subscriptions/google/webhook", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.GOOGLE_PLAY_PACKAGE_NAME = "com.example.app";
-  });
-
-  afterEach(() => {
-    delete process.env.GOOGLE_PLAY_PACKAGE_NAME;
+    mockGetAppSecrets.mockResolvedValue({ GOOGLE_PLAY_PACKAGE_NAME: "com.example.app" });
   });
 
   it("returns 200 for a valid notification", async () => {
@@ -1044,7 +1040,7 @@ describe("POST /api/subscriptions/google/webhook", () => {
   });
 
   it("returns 200 and skips processing when GOOGLE_PLAY_PACKAGE_NAME is not set", async () => {
-    delete process.env.GOOGLE_PLAY_PACKAGE_NAME;
+    mockGetAppSecrets.mockResolvedValueOnce({ GOOGLE_PLAY_PACKAGE_NAME: "" });
 
     const res = await request(buildApp())
       .post("/api/subscriptions/google/webhook")

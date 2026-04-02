@@ -207,7 +207,6 @@ describe("errorHandler middleware", () => {
     });
 
     it("does not leak stack trace in production (IS_LOCAL not set)", async () => {
-      delete process.env.IS_LOCAL;
       const app = buildApp((_req, _res, next) => {
         next(new Error("secret internal details"));
       });
@@ -217,16 +216,15 @@ describe("errorHandler middleware", () => {
     });
 
     it("includes error message in local environment", async () => {
-      process.env.IS_LOCAL = "true";
       const app = buildApp((_req, _res, next) => {
         next(new Error("local debug info"));
       });
+      app.set("secrets", { NODE_ENV: "local" });
       const res = await request(app).get("/test");
       expect(res.body.message).toBe("local debug info");
     });
 
     it("returns 'Internal Server Error' for non-Error unknowns in production", async () => {
-      delete process.env.IS_LOCAL;
       const app = buildApp((_req, _res, next) => {
         next("a plain string error");
       });

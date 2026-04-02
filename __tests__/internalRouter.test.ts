@@ -14,10 +14,16 @@ jest.mock("../src/db/db", () => ({
   getDb: jest.fn().mockReturnValue({}),
 }));
 
+jest.mock("../src/aws/getAppSecrets", () => ({
+  getAppSecrets: jest.fn(),
+}));
+
 import { runAlertEvaluator } from "../src/jobs/alertEvaluator";
+import { getAppSecrets } from "../src/aws/getAppSecrets";
 import internalRouter from "../src/routers/internalRouter";
 
 const mockRunAlertEvaluator = runAlertEvaluator as jest.Mock;
+const mockGetAppSecrets = getAppSecrets as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Test app factory
@@ -40,11 +46,7 @@ describe("POST /api/internal/trigger-alerts", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.INTERNAL_API_KEY = VALID_KEY;
-  });
-
-  afterEach(() => {
-    delete process.env.INTERNAL_API_KEY;
+    mockGetAppSecrets.mockResolvedValue({ INTERNAL_API_KEY: VALID_KEY });
   });
 
   it("returns 200 and { ok: true } when the correct key is provided", async () => {
@@ -77,8 +79,8 @@ describe("POST /api/internal/trigger-alerts", () => {
     expect(mockRunAlertEvaluator).not.toHaveBeenCalled();
   });
 
-  it("returns 500 when INTERNAL_API_KEY env var is not set", async () => {
-    delete process.env.INTERNAL_API_KEY;
+  it("returns 500 when INTERNAL_API_KEY is not configured", async () => {
+    mockGetAppSecrets.mockResolvedValueOnce({ INTERNAL_API_KEY: "" });
 
     const res = await request(buildApp())
       .post("/api/internal/trigger-alerts")
