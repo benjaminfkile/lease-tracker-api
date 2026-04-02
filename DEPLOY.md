@@ -215,7 +215,6 @@ The Dockerfile accepts four build arguments that are baked into the runtime imag
 | `AWS_REGION` | AWS region for SDK calls |
 | `AWS_SECRET_ARN` | ARN of the app config secret |
 | `AWS_DB_SECRET_ARN` | ARN of the database credentials secret |
-| `NODE_ENVIRONMENT` | Runtime environment (`production`) |
 
 ```bash
 IMAGE_URI=<ECR_REGISTRY>/<ECR_REPOSITORY>
@@ -229,7 +228,6 @@ docker buildx build \
   --build-arg AWS_REGION=<AWS_REGION> \
   --build-arg AWS_SECRET_ARN=<AWS_SECRET_ARN> \
   --build-arg AWS_DB_SECRET_ARN=<AWS_DB_SECRET_ARN> \
-  --build-arg NODE_ENVIRONMENT=production \
   -t $IMAGE_URI:$GIT_SHA \
   -t $IMAGE_URI:latest \
   --push .

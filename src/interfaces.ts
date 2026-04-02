@@ -18,8 +18,8 @@ export interface IAppSecrets {
 }
 
 export interface IDBSecrets {
-  DB_USERNAME: string;
-  DB_PASSWORD: string;
+  username: string;
+  password: string;
 }
 
 export interface IDBHealth {

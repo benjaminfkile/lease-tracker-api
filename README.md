@@ -142,7 +142,6 @@ docker build \
   --build-arg AWS_REGION=us-east-1 \
   --build-arg AWS_SECRET_ARN=<arn> \
   --build-arg AWS_DB_SECRET_ARN=<arn> \
-  --build-arg NODE_ENVIRONMENT=production \
   -t lease-tracker-api:latest .
 ```
 

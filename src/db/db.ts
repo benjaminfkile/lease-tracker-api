@@ -11,8 +11,6 @@ export async function initDb(
 ): Promise<Knex> {
   if (db) return db;
 
-  const { DB_USERNAME, DB_PASSWORD, /*PROXY_URL,*/ } = dbSecrets;
-
   const { DB_NAME, DB_HOST } = appSecrets;
 
   // const dbUrl = environmnet !== "local" ? PROXY_URL : HOST;
@@ -22,8 +20,8 @@ export async function initDb(
     client: "pg",
     connection: {
       host: dbUrl,
-      user: DB_USERNAME,
-      password: DB_PASSWORD,
+      user: dbSecrets.username,
+      password: dbSecrets.password,
       database: DB_NAME,
       port: 5432,
       ssl: { rejectUnauthorized: false },
