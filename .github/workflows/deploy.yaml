@@ -79,7 +79,7 @@ jobs:
               --auto-scaling-group-name "${{ secrets.ASG_NAME }}" \
               --query 'InstanceRefreshes[0].Status' --output text)
 
-            if [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "None" ] || [ "$STATUS" = "Successful" ]; then
+            if [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "None" ] || [ "$STATUS" = "Successful" ] || [ "$STATUS" = "Failed" ]; then
               echo "No refresh in progress (status: $STATUS)."
               break
             fi
@@ -93,4 +93,4 @@ jobs:
           aws autoscaling start-instance-refresh \
             --auto-scaling-group-name "${{ secrets.ASG_NAME }}" \
             --strategy Rolling \
-            --preferences '{"MinHealthyPercentage": 100, "InstanceWarmup": 120}'
+            --preferences '{"MinHealthyPercentage": 100, "InstanceWarmup": 400}'
