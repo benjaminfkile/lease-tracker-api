@@ -1,9 +1,0 @@
-{
-  "description": "Ordered list of issues for the secrets-consolidation refactor. Replaces all .env variables (except AWS_REGION, AWS_SECRET_ARN, AWS_DB_SECRET_ARN) with AWS Secrets Manager values. Renames IAPISecrets → IAppSecrets with UPPER_SNAKE_CASE fields, removes isLocal(), deletes legacy helper modules, and updates knexfile to fetch DB credentials from AWS.",
-  "queue": [
-    161,
-    162,
-    163,
-    164
-  ]
-}
